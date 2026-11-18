@@ -53,7 +53,7 @@ Printer: AD5M Pro · stock firmware **3.2.3** (`/opt/PROGRAM/software/3.2.3`, li
 | 7 | Partition layout. Which partitions are rootfs, `/opt` and `/data`, and are they rw? | `storage/*`, `SUMMARY.txt` | p6 = `/` (incl. `/opt`), ext4 rw. p7 = `/data`, ext4 rw. `/tmp`, `/run`, `/dev/shm` are tmpfs |
 | 8 | Free space on `/data`, and available RAM with the stock screen running | `SUMMARY.txt`, `sys/meminfo`, `proc/detail` (rss) | |
 | 9 | Stock listening ports and which process owns each | `net/listening`, `SUMMARY.txt` | |
-| 10 | Stock update and cloud hosts actually referenced | `strings/*`, `net/hosts-blocked` | From firmwareExe: `update.sz3dp.com:10443`, `update.cn.sz3dp.com:10443`, `cloud.sz3dp.com`, `hz.sz3dp.com:11002`, `api.fdmcloud.flashforge.com` (+`/healthx/liveness`), `polar3d.com`, `printer2.polar3d.com`, `qvs.qiniuapi.com`, **`qvs-live.qnvideo.flashforge.com`, `qvs-publish.qnvideo.flashforge.com`** (both missing from zmod's hosts block), plus an Alibaba Cloud OSS client. This argues for default-deny outbound |
+| 10 | Stock update and cloud hosts actually referenced | `strings/*`, `net/hosts-blocked` | From firmwareExe: `update.sz3dp.com:10443`, `update.cn.sz3dp.com:10443`, `cloud.sz3dp.com`, `hz.sz3dp.com:11002`, `api.fdmcloud.flashforge.com` (+`/healthx/liveness`), `polar3d.com`, `printer2.polar3d.com`, `qvs.qiniuapi.com`, **`qvs-live.qnvideo.flashforge.com`, `qvs-publish.qnvideo.flashforge.com`** (both missing from zmod's hosts block), plus an Alibaba Cloud OSS client. **Firmware 5.2.0 adds** `api.voxelshare.com`, `update.voxelshare.com`, `center.voxelshare.com` (bootstrap), `api.flash3dcloud.com:32443`, `update.flash3dcloud.com:32445`, `liveplay.flashforge.com`, `livepush.flashforge.com`, `ipinfo.io` (geolocation) and `pool.ntp.org` (via `/opt/ntpclient`). Its `server.json` has a `bootstrapUrl` and a `lastDomainSyncMs`, so it **syncs its domain list at runtime**. A hosts-file blocklist can't keep up, which is why outbound is default-deny |
 
 ## Nice-to-know
 
@@ -68,5 +68,5 @@ Printer: AD5M Pro · stock firmware **3.2.3** (`/opt/PROGRAM/software/3.2.3`, li
 ## Separate checks (not covered by the probe)
 
 - [x] Partition backup: p1–p5 and the disk head are verified. p6 `rootfs` is saved but changed during the read. That's fine for reference, but **the official firmware `.tgz` plus factory reset is the real restore path**.
-- [~] Reference package analysed: `Adventurer5MPro-3.1.3-2.2.3-20250107-Factory.tgz`. It's older than the installed 3.2.3, so **don't install it**. Keep a 3.2.3 (or newer) package with the backup for recovery.
+- [x] Update packages analysed: the 3.1.3 Factory package (reference only, **don't install**) and the latest regular **5.2.0** package (kept by the user, and also the recovery package).
 - [ ] The UART recovery steps are understood (3.3 V adapter only), and the factory-reset procedure has been read.

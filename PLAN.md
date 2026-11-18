@@ -33,7 +33,7 @@ Confirmed from the partition backup of firmware 3.2.3 (details in [`docs/device-
 - **Updates:**
   - USB: `auto_run.sh` unpacks the newest `/mnt/Adventurer5MPro-*.tgz` into `/data/update/` with plain `tar` and runs `flashforge_init.sh Adventurer5MPro 0024`. There is no signature check, and a bare `/mnt/flashforge_init.sh` is run the same way.
   - MCU OTA: an `Update` flag under `/opt/PROGRAM/control/<ver>/` triggers `run.sh`.
-- **Cloud:** firmwareExe talks to several hosts, some of which zmod's `/etc/hosts` block misses (`qvs-live`/`qvs-publish.qnvideo.flashforge.com`), plus an Alibaba Cloud OSS client.
+- **Cloud:** firmwareExe talks to many hosts, and the list grows with each release. 5.2.0 adds the voxelshare.com and flash3dcloud.com endpoints, the liveplay/livepush streaming hosts and ipinfo.io, and **syncs its domain list at runtime** through a bootstrap URL. zmod's `/etc/hosts` block covers only some of them, so **outbound must be default-deny**, not a blocklist.
 - **Kernel:** 5.4.61 with no netfilter, inotify, loop, overlayfs, cgroups or namespaces. Policy routing is available.
 - **Gcode:** the stock screen lists `/data`.
 - **Memory:** 128 MB of RAM; the stock screen takes about 13–20 MB. Memory is the main constraint (headroom not yet measured).
@@ -126,7 +126,7 @@ pref 300     prohibit                                                           
 ```
 
 - *Inbound:* stock ports 8898/8899 (Flashforge LAN API, FlashPrint, Orca native) and 8080 (camera) are toggles. The rule set can also restrict SSH and Moonraker to given source addresses.
-- *Outbound:* default deny. Allowed: the LAN, DNS to the configured resolver, NTP, and named allow-lists. Stock processes all run as root, so the policy is per destination, not per process.
+- *Outbound:* default deny. Allowed: the LAN, DNS to the configured resolver, NTP, and named allow-lists. NTP goes to a configured server; stock 5.2.0 uses `pool.ntp.org` via `/opt/ntpclient`, so allow that or point it at a LAN NTP server. `zforge fw check` opens only the update hosts (`update.sz3dp.com:10443`, `update.flash3dcloud.com:32445`, `update.voxelshare.com`), and only while it runs. Stock processes all run as root, so the policy is per destination, not per process.
   - Allow-listed host names are resolved to /32 rules when the firewall is applied, and refreshed periodically.
   - `/etc/hosts` sinkholing of the vendor hosts stays as defence in depth.
   - DHCP renewals rewrite the `main` table, not the rules, so the firewall survives them.

@@ -8,6 +8,26 @@ This was worked out from `Adventurer5MPro-3.1.3-2.2.3-20250107-Factory.tgz`, dow
 
 **Do not install this package on a printer running 3.2.3.** It would downgrade the software to 3.1.3. It is used here only as a reference for the format.
 
+A second, **regular** package was checked too: the latest from Flashforge, supplied by the user.
+
+- **Package:** sha256 `fbecaabb640823e6340582491b4a97454961b0cf7f72a6d2955ae3a99711e6f4`.
+- **Versions:** software **5.2.0**, library **2.5.0**, kernel 2.1.6, control 2.2.3.
+- **Integrity:** all `md5sum.list` checks pass.
+- **Kernel and control payloads** are identical to the Factory package's.
+
+## Regular vs Factory packages
+
+| | Factory (3.1.3) | Regular (5.2.0) |
+|---|---|---|
+| `screwflag` (skips model check) | yes | no |
+| overwrites `/etc/wpa_supplicant.conf`, hostapd conf | **yes** | no |
+| overwrites `printer.cfg`, `printer.base.cfg`, `tmc.py` | **yes** | no |
+| overwrites `/etc/shadow`, `/etc/inittab` | yes | **yes** (same files) |
+| new `rcS` / `auto_run.sh` | identical to installed 3.2.3 | identical to installed 3.2.3 |
+| extras | — | `config/server.json` (cloud bootstrap), `/opt/ntpclient` |
+
+So even regular updates reset the stock root password. They leave Wi-Fi and printer config alone, and, importantly, **they still run `/etc/init.d/S??*` unchanged**.
+
 ## Container
 
 Despite the `.tgz` name, the outer file is an **uncompressed GNU tar**. Stock `auto_run.sh` unpacks it with `tar -xvf` into `/data/update/` and runs `/data/update/flashforge_init.sh Adventurer5MPro 0024`.
@@ -50,7 +70,7 @@ The component `*.tar.xz` files are **also plain tar** (not xz). Each contains an
 - **The `/etc/init.d/S35zforge` hook survives updates.** Nothing in the update writes `/etc/init.d/S*`, and the replacement `rcS` still runs `S??*` in order. `/data/zforge` is never touched either.
 - **Root SSH survives** because zforge's dropbear uses its own key file on `/data`, not `/etc/shadow`. The update still resets the stock root password.
 - **`zforge fw install` must:**
-  - snapshot `/etc/wpa_supplicant.conf` (and the hostapd conf) and restore them after the update, so Wi-Fi survives;
+  - snapshot `/etc/wpa_supplicant.conf` (and the hostapd conf) and restore them after the update, so Wi-Fi survives. Only Factory packages overwrite them, but the restore is cheap and also guards against future packages;
   - back up `printer.cfg` and `printer.base.cfg` to `/data/zforge/backup/` before the vendor's copies overwrite them;
   - check each component's `md5sum.list` before running anything, and refuse a package that fails;
   - refuse a **downgrade** unless forced, by comparing `software-<v>` with `/opt/PROGRAM/software/<current>`;
