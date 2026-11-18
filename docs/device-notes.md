@@ -40,6 +40,14 @@ Printer: AD5M Pro · stock firmware **3.2.3** (`/opt/PROGRAM/software/3.2.3`, li
 | `CONFIG_USB_VIDEO_CLASS` | y | UVC camera |
 
 
+## Current zmod Moonraker setup (to migrate)
+
+From `/opt/config/mod_data/user.moonraker.conf` (probe):
+- **`[server]`:** `port: 0` and `ssl_port: 7130`. HTTP lands on a random port (40955 in the probe), and HTTPS is on 7130.
+- **Certificate:** none configured, so Moonraker uses `<data_path>/certs/moonraker.{cert,key}`, which is `/data/.mod/.zmod/root/printer_data/certs/`. It's a self-signed certificate that Orca already trusts.
+- **`[authorization]`:** `trusted_clients: 0.0.0.0/0` and `cors_domains: *`.
+- **`[update_manager]`:** `enable_auto_refresh: False`. A spoolman block for a LAN server is present but commented out.
+
 ## Must-know
 
 | # | Question | Where to look | Answer |

@@ -5,7 +5,7 @@ A minimal alternative to zmod for the Flashforge Adventurer 5M Pro (AD5M Pro).
 ## Goals
 
 1. Root SSH access (key-based).
-2. Current Moonraker, and later current Klipper, so stock OrcaSlicer can upload and print using the "Octo/Klipper" host type.
+2. Current Moonraker, **reachable over TLS only** with a self-signed certificate, and later current Klipper, so stock OrcaSlicer can upload and print using the "Octo/Klipper" host type (`https://PRINTER_IP:7130`).
 3. Stock firmware stays upgradeable, through SSH or Moonraker as well as the touchscreen.
 4. A strict firewall the user controls, so the stock firmware can be cut off from the network.
 5. The stock touchscreen and stock behavior keep working.
@@ -65,7 +65,7 @@ stock rootfs (untouched except one file)
 |---|---|---|
 | firmwareExe (screen) | stock | unchanged |
 | Klipper | stock `/opt/klipper` | unchanged; zforge only adds a `[include zforge.cfg]` if needed for Moonraker |
-| Moonraker | chroot | talks to stock klippy's API socket; binds :7125; `file_system_observer: none` (kernel has no inotify) |
+| Moonraker | chroot | talks to stock klippy's API socket (`/tmp/uds`); **HTTPS on :7130** for the network, plain HTTP on :7125 reachable only from the printer itself (see TLS below); `file_system_observer: none` (kernel has no inotify) |
 | dropbear | chroot | :22, root login by key only (password optional) |
 | policy-routing firewall | `ip rule` from chroot iproute2 | applied at boot before network services start |
 
@@ -86,6 +86,7 @@ zforge fw backup                  dump stock partitions / /opt to a tarball you 
 zforge firewall apply [--confirm 120]   apply rules; auto-revert unless confirmed
 zforge firewall profile <open|lan|strict>
 zforge firewall allow|deny <host|cidr> [port]
+zforge tls show|regen|import <cert> <key>   Moonraker's HTTPS certificate
 zforge klipper stock|mainline     switch host klipper (+MCU) — Phase 4
 zforge update                     update zforge itself from a release tgz
 zforge uninstall                  remove hook + /data/zforge, restore backups
@@ -149,11 +150,35 @@ ALLOW_OUT="pool.ntp.org"
 STOCK_LAN_API=off        # 8898/8899
 CAMERA=on
 SSH_PASSWORD_AUTH=off
+MOONRAKER_HTTPS_PORT=7130   # plain HTTP (7125) is loopback-only, always
 ```
+
+## Moonraker over TLS (goal 2)
+
+Moonraker can't turn off its plain-HTTP listener. It always serves HTTP on `port`, and adds HTTPS on `ssl_port` once it finds a certificate. One `host` setting applies to both, so HTTP can't be bound to localhost alone. zforge's setup:
+
+- **`[server]`:** `host: 0.0.0.0`, `port: 7125`, `ssl_port: 7130`. The certificate and key live in Moonraker's default spot, `<data_path>/certs/moonraker.cert` and `moonraker.key`, under `/data/zforge/var/moonraker/`.
+- **Plain HTTP is blocked from the network in every firewall profile**, including `open`: a base rule `iif <wlan0|eth0> ipproto tcp dport 7125 blackhole` that profiles can't turn off. Loopback still works, so zforge's CLI and health checks can use `http://127.0.0.1:7125`.
+- **Why not `port: 0`?** That's the zmod setup in use now. It doesn't disable HTTP; it binds it to a *random* port (40955 in the probe) on all interfaces. That port falls in the range the stateless rules must leave open for replies to the printer's own connections, so it can't be blocked reliably. A fixed port plus an explicit block can.
+- **Certificate:** a self-signed ECDSA P-256 server certificate, made with `openssl` in the chroot on first boot when none exists:
+  - SANs: the printer's IP address(es), hostname and `hostname.local`;
+  - extended key usage `serverAuth`;
+  - valid 825 days, so macOS accepts it.
+
+  The key is root-only (0600).
+  - `zforge tls import <cert> <key>` keeps an existing certificate, such as the one zmod uses now, so Orca keeps trusting it.
+  - `zforge tls regen` makes a new one, for example if the printer's IP changes. A DHCP reservation for the printer avoids that.
+  - `zforge tls show` prints the certificate and its SHA-256 fingerprint for trusting it on clients.
+- **User overrides:** zforge generates `moonraker.conf` and `[include]`s `/data/zforge/etc/moonraker.user.conf` (the counterpart of zmod's `user.moonraker.conf`) for anything else, like spoolman.
+- **Authorization defaults** are tighter than the current zmod config:
+  - `trusted_clients` is set to `LAN_CIDRS`, not `0.0.0.0/0`;
+  - `cors_domains` is empty, not `*`. A wildcard CORS setting lets any web page open in a browser on the LAN drive the printer, once that browser trusts the certificate.
+
+  Both can be loosened in the user file.
 
 ## OrcaSlicer (goal 2)
 
-Stock Orca: Printer → Connection → host type "Octo/Klipper", host `PRINTER_IP:7125`. Upload and print go through Moonraker's `/server/files/upload` with `print=true`. Moonraker's gcode root is symlinked to the stock gcode directory, so files show up on the touchscreen too. Phase 1 checks that the stock screen sees them and that a print started from Moonraker shows progress on the screen.
+Stock Orca: Printer → Connection → host type "Octo/Klipper", host **`https://PRINTER_IP:7130`**. Orca checks the certificate: on Windows and macOS the self-signed certificate has to be trusted in the system certificate store or Keychain, and on Linux Orca's "HTTPS CA file" field points to it. This is the setup that already works with zmod, and importing the existing certificate keeps it working. Upload and print go through Moonraker's `/server/files/upload` with `print=true`. Moonraker's gcode root is symlinked to the stock gcode directory, so files show up on the touchscreen too. Phase 1 checks that the stock screen sees them and that a print started from Moonraker shows progress on the screen.
 
 ## Phases
 
@@ -171,8 +196,9 @@ Stock Orca: Printer → Connection → host type "Octo/Klipper", host `PRINTER_I
 ### Phase 1: Skeleton, SSH, Moonraker (stock Klipper)
 - Build script: Alpine armv7 minirootfs plus packages, giving a reproducible rootfs tarball (CI on GitHub Actions with qemu-user).
 - Packaging: `Adventurer5MPro-zforge-<ver>.tgz` / `flashforge_init.sh` USB installer, which installs onto clean stock firmware *or* migrates away from zmod. Migration means running zmod's `REMOVE_ZMOD FULL=1` or USB removal first, then a factory reset, as zmod itself requires.
-- The hook, `zforge boot`, dropbear with persistent host keys, and Moonraker running against stock klippy.
-- **Exit criteria:** you can SSH in as root with a key, Orca uploads and prints, the stock screen works normally, and the printer survives reboots.
+- The hook, `zforge boot`, the swap file on `/data`, dropbear with persistent host keys, and Moonraker running against stock klippy, with HTTPS on 7130 and the always-on block of 7125 from the network.
+- Migration from zmod: **before** removing zmod, copy off `/data/.mod/.zmod/root/printer_data/certs/moonraker.{cert,key}`, the dropbear `authorized_keys`, and `mod_data/user.moonraker.conf`. `zforge tls import` and the installer reuse them.
+- **Exit criteria:** you can SSH in as root with a key, Orca uploads and prints over `https://…:7130`, `:7125` and any other Moonraker port are unreachable from the LAN, the stock screen works normally, and the printer survives reboots.
 
 ### Phase 2: Firewall
 - Profiles, CLI, the confirm/rollback timer, the USB escape hatch, and the fallback mode if needed.
