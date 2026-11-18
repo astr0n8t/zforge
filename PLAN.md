@@ -22,22 +22,32 @@ Anything zmod offers beyond those goals: macro libraries, Fluidd/Mainsail themin
 - **Every risky change can be undone without SSH.** Each risky step has a matching USB recovery path that works through the stock `flashforge_init.sh` mechanism.
 - **Plain shell where possible.** The CLI, the hook and the installer are POSIX `sh`, so there is no daemon of our own to maintain.
 
-## How the stock printer behaves (background)
+## How the stock printer behaves
 
-These points come from the zmod docs and scripts. Phase 0 confirms each of them on the real device.
+Confirmed from the partition backup of firmware 3.2.3 (details in [`docs/device-notes.md`](docs/device-notes.md)), unless marked otherwise:
 
-- At boot, stock firmware runs `flashforge_init.sh` as root from the root of a FAT32 USB stick. It also installs `Adventurer5MPro-*.tgz` update packages found there. This is how zmod, the root installer and the official updates all get onto the printer.
-- Stock Klipper (a Flashforge fork of roughly v0.11) lives at `/opt/klipper`. Its config is in `/opt/config`.
-- Stock cloud and update hosts include `update.sz3dp.com`, `update.cn.sz3dp.com`, `cloud.sz3dp.com`, `hz.sz3dp.com`, `api.cloud.flashforge.com`, `api.fdmcloud.flashforge.com`, `printer2.polar3d.com`, `polar3d.com` and `qvs.qiniuapi.com`. zmod blocks them through `/etc/hosts`, which also disables stock update checks.
-- Stock LAN services: ports 8898/8899 carry the Flashforge LAN protocol, which FlashPrint and Orca's native "Flashforge" connection use.
-- The board has 128 MB of RAM, and the stock screen takes about 13–20 MB of it. Memory is the main constraint.
-- Moving to mainline Klipper requires reflashing the MCU to match. zmod does this with `UPDATE_MCU`, and it has to be reversed before stock firmware updates.
+- **Boot:** BusyBox init runs `rcS`, which runs `/etc/init.d/S??*` in order (S40 brings the network up), then starts `/opt/auto_run.sh` in the background.
+  - auto_run mounts `/data` (p7) and handles USB updates.
+  - It then starts `ffstartup-arm`, which runs `firmwareExe` (the touchscreen app).
+  - **firmwareExe starts stock Klipper** (`/opt/klipper`, Python 3.7.11) with its API socket at **`/tmp/uds`**, which Moonraker can share.
+- **Updates:**
+  - USB: `auto_run.sh` unpacks the newest `/mnt/Adventurer5MPro-*.tgz` into `/data/update/` with plain `tar` and runs `flashforge_init.sh Adventurer5MPro 0024`. There is no signature check, and a bare `/mnt/flashforge_init.sh` is run the same way.
+  - MCU OTA: an `Update` flag under `/opt/PROGRAM/control/<ver>/` triggers `run.sh`.
+- **Cloud:** firmwareExe talks to several hosts, some of which zmod's `/etc/hosts` block misses (`qvs-live`/`qvs-publish.qnvideo.flashforge.com`), plus an Alibaba Cloud OSS client.
+- **Kernel:** 5.4.61 with no netfilter, inotify, loop, overlayfs, cgroups or namespaces. Policy routing is available.
+- **Gcode:** the stock screen lists `/data`.
+- **Memory:** 128 MB of RAM; the stock screen takes about 13–20 MB. Memory is the main constraint (headroom not yet measured).
+- **Stock LAN services:** 8898/8899 (Flashforge LAN protocol, FlashPrint and Orca's native connection). *Not yet confirmed on this unit.*
+- **zmod's approach:** it hooks in through `/etc/init.d` symlinks to `/opt/config/mod/.shell/*`, runs a chroot at `/data/.mod/.zmod`, and patches stock Klipper files. That's why a factory reset comes before zforge.
+- **Mainline Klipper (later):** requires reflashing the MCU to match.
 
 ## Architecture
 
 ```
 stock rootfs (untouched except one file)
- └─ /etc/init.d/S99zforge  ──►  /data/zforge/bin/zforge boot   (a no-op if zforge is missing or disabled)
+ └─ /etc/init.d/S35zforge  ──►  /data/zforge/bin/zforge boot   (a no-op if zforge is missing or disabled)
+       S35 runs before S40network, so the firewall is in place before any interface comes up.
+       It then starts sshd, and starts Moonraker in the background once /tmp/uds appears (Klipper starts late, via firmwareExe).
 
 /data/zforge/
  ├─ rootfs/              Alpine armv7 chroot (plain dir): python3, moonraker, klipper, dropbear, iproute2
@@ -88,9 +98,9 @@ The hard part is making zforge survive a stock update. An update rewrites the st
 1. **`zforge fw install`** is the supported path. It:
    - verifies the package: model prefix `Adventurer5MPro-`, a sane tar layout, an optional SHA256 the user supplies;
    - checks preconditions: MCU on stock firmware (if not, it refuses or offers `zforge klipper stock`), enough free space, no print running;
-   - unpacks the package into a staging dir and runs the vendor's own installer script. The script runs with `reboot` shimmed through `PATH`, so control comes back to zforge before the reboot;
-   - reinstalls the one-line hook into the new rootfs, records the new stock version, and reboots for real.
-   - The exact mechanics depend on what Phase 0 finds inside a real update `.tgz`.
+   - does exactly what `auto_run.sh` does: copies the package to `/data`, `tar -xf` into `/data/update/`, and runs `flashforge_init.sh Adventurer5MPro 0024`. The script runs with `reboot` shimmed through `PATH`, so control comes back to zforge before the reboot;
+   - reinstalls the one-line hook if the update removed it, records the new stock version, and reboots for real.
+   - *Still open:* what a stock `flashforge_init.sh` touches (whether it rewrites `/etc/init.d` or uses `reboot`, `reboot -f` or sysrq). Read it from a real 3.2.x update `.tgz` before implementing.
 2. **Touchscreen OTA keeps working.** `zforge fw allow-ota` opens just the update hosts for a while. After an OTA install the hook may be gone. Because everything else is on `/data`, re-arming takes either a tiny USB `flashforge_init.sh` (ships in every release) or, if the hook survived, nothing at all.
 3. **USB updates keep working** exactly as stock. The same re-arm stick applies afterwards.
 
