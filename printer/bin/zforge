@@ -53,7 +53,7 @@ cmd_boot() {
             svc_start moonraker
         fi
         zf_log "boot: background start finished"
-    ) </dev/null >>"$ZF_LOG/zforge.log" 2>&1 &
+    ) </dev/null >>"$ZF_LOG/boot.out" 2>&1 &   # zf_log already writes zforge.log
     return 0
 }
 

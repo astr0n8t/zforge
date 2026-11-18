@@ -22,11 +22,13 @@ mr_prepare() {
 #[spoolman]
 #server: https://spoolman.example.lan
 EOF
-    sed -e "s|@HTTP_PORT@|$MOONRAKER_HTTP_PORT|g" \
-        -e "s|@HTTPS_PORT@|$MOONRAKER_HTTPS_PORT|g" \
-        -e "s|@USER_CONF@|$ZF_HOME/etc/moonraker.user.conf|g" \
-        "$ZF_SHARE/moonraker.conf.in" >"$MR_DATA/config/moonraker.conf.new" &&
-        mv "$MR_DATA/config/moonraker.conf.new" "$MR_DATA/config/moonraker.conf"
+    for f in moonraker moonraker.enforced; do
+        sed -e "s|@HTTP_PORT@|$MOONRAKER_HTTP_PORT|g" \
+            -e "s|@HTTPS_PORT@|$MOONRAKER_HTTPS_PORT|g" \
+            -e "s|@USER_CONF@|$ZF_HOME/etc/moonraker.user.conf|g" \
+            "$ZF_SHARE/$f.conf.in" >"$MR_DATA/config/$f.conf.new" &&
+            mv "$MR_DATA/config/$f.conf.new" "$MR_DATA/config/$f.conf"
+    done
 }
 
 # mr_sql DB show|rotate : read or regenerate the API key (same SQL as

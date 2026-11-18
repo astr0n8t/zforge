@@ -204,6 +204,30 @@ Stock Orca: Printer → Connection → host type "Octo/Klipper", host **`https:/
 - Migration from zmod: **before** removing zmod, copy off `/data/.mod/.zmod/root/printer_data/certs/moonraker.{cert,key}`, the dropbear `authorized_keys`, and `mod_data/user.moonraker.conf`. `zforge tls import` and the installer reuse them.
 - **Exit criteria:** you can SSH in as root with a key, Orca uploads and prints over `https://…:7130` using the API key, requests without the key get `401`, `:7125` and any other Moonraker port are unreachable from the LAN, the stock screen works normally, and the printer survives reboots.
 
+**Status:** implemented and passing all 41 checks of `tests/e2e/printer-sim.sh` in simulation:
+- USB install with key, certificate and user-config import from the stick;
+- the boot hook and base firewall;
+- key-only SSH, plus sftp and scp;
+- HTTPS with the API key, with the certificate verifying for the IP address;
+- port 7125 unreachable from the LAN;
+- Orca's OctoPrint upload path;
+- key rotation and certificate regeneration;
+- an SSH upgrade that keeps state;
+- shutdown and disable.
+
+Found and fixed along the way:
+- Moonraker rejects duplicate sections in one file, so the enforced settings now live in their own included file.
+- Dropbear needs a non-writable directory path to `authorized_keys`, so zforge tightens `/data` if needed.
+- Service stop now signals the whole process group.
+
+**Phase 1: on-printer checklist.** These can't be covered by the simulation:
+1. The boot order holds: `/data` mounts in S35 and the stock `auto_run.sh` still works; Wi-Fi comes up; the touchscreen and stock Klipper are unaffected.
+2. The bundled armv7 `ip` adds the rules on the printer's native 5.4 kernel. qemu can't emulate netlink for it; the simulation used the host's `ip`.
+3. Moonraker connects to stock Klipper on `/tmp/uds`; an Orca upload with "print" starts the job; the touchscreen shows the file and the progress.
+4. Memory: `zforge status` and `free` while printing, with zforge's swap on `/data`. Check for `page allocation failure` in `dmesg`.
+5. NTP to the configured server works, and the certificate is generated on the first boot (if none was imported).
+6. Reboot and power-cycle: everything comes back; the rescue-disable stick works.
+
 ### Phase 2: Firewall
 - Profiles, CLI, the confirm/rollback timer, the USB escape hatch, and the fallback mode if needed.
 - **Exit criteria:** with `strict`, a capture on the LAN gateway shows no traffic to vendor hosts over 24 h, and Orca, SSH and NTP still work.

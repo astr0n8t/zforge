@@ -23,6 +23,14 @@ svc_pre() {  # one-time preparation before the first start
                 "$ZF_BIN/dropbearkey" -t ed25519 -f "$ZF_ETC/ssh/dropbear_ed25519_host_key" >/dev/null 2>&1 ||
                     { zf_log "dropbearkey failed"; return 1; }
             fi
+            # dropbear refuses authorized_keys if any directory on its path is
+            # group/other-writable (or not root-owned): keep the chain strict.
+            for d in "$ZF_SYSROOT/data" "$ZF" "$ZF_ETC" "$ZF_ETC/ssh"; do
+                if [ -n "$(find "$d" -maxdepth 0 -perm -g+w -o -maxdepth 0 -perm -o+w 2>/dev/null)" ]; then
+                    zf_log "tightening permissions on $d (was group/other-writable; dropbear requires this)"
+                    chmod go-w "$d"
+                fi
+            done
             [ -s "$ZF_ETC/ssh/authorized_keys" ] ||
                 zf_log "WARNING: $ZF_HOME/etc/ssh/authorized_keys is empty; nobody can log in (password login is compiled out)"
             chmod 600 "$ZF_ETC/ssh/authorized_keys" 2>/dev/null
@@ -37,7 +45,7 @@ svc_start() {
     svc_pre "$n" || return 1
     logf="$ZF_LOG/$n.log"
     # keep logs small: one rotation at 512 KB
-    if [ "$(wc -c <"$logf" 2>/dev/null || echo 0)" -gt 524288 ]; then mv -f "$logf" "$logf.1"; fi
+    if [ -f "$logf" ] && [ "$(wc -c <"$logf")" -gt 524288 ]; then mv -f "$logf" "$logf.1"; fi
     # shellcheck disable=SC2016  # expanded by the supervisor shell
     setsid sh -c '
         while :; do
@@ -52,10 +60,14 @@ svc_start() {
 svc_stop() {
     n=$1; pf=$(svc_pidfile "$n")
     p=$(cat "$pf" 2>/dev/null) || return 0
-    if kill -0 "$p" 2>/dev/null; then
-        kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
-        i=0; while kill -0 "$p" 2>/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
-        kill -KILL -- "-$p" 2>/dev/null
+    # The supervisor is a session/group leader: signal the whole group so the
+    # service (e.g. Moonraker inside chroot) goes with it. No "--": dash's
+    # kill doesn't take it; BusyBox and dash both accept a negative PGID.
+    if kill -0 "-$p" 2>/dev/null || kill -0 "$p" 2>/dev/null; then
+        kill -TERM "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+        i=0
+        while kill -0 "-$p" 2>/dev/null && [ $i -lt 15 ]; do sleep 1; i=$((i + 1)); done
+        kill -KILL "-$p" 2>/dev/null
         zf_log "stopped $n"
     fi
     rm -f "$pf"

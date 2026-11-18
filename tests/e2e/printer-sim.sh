@@ -1,10 +1,10 @@
 #!/bin/sh
 # End-to-end test of a zforge package on a simulated printer.
 #
-#   unshare -m -n sh tests/e2e/printer-sim.sh dist/Adventurer5MPro-zforge-<ver>.tgz
+#   unshare -m -n -p -f --mount-proc sh tests/e2e/printer-sim.sh dist/Adventurer5MPro-zforge-<ver>.tgz
 #
 # Runs the real package (armv7 binaries via qemu-user binfmt on x86) inside
-# private mount + network namespaces:
+# private mount + network + PID namespaces (all processes die with it):
 #   /data, /etc/init.d, /opt/config, /mnt, /tmp, /run  -> scratch mounts
 #   "wlan0" (10.9.0.1) <-veth-> netns "lan" (10.9.0.2) playing the user's PC
 # Flow: USB-mode install (stick with authorized_keys) -> S35zforge start ->
@@ -52,6 +52,10 @@ echo "== install (USB mode)"
 cp "$W/pc/id.pub" /mnt/authorized_keys
 # a user file that tries to undo the policy (like the current zmod config); zforge must win
 printf '[server]\n# user include from the stick\nport: 0\n\n[authorization]\ntrusted_clients:\n  0.0.0.0/0\ncors_domains:\n  *\n' >/mnt/moonraker.user.conf
+# the zmod migration path: an existing certificate on the stick must be kept
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 30 -subj /CN=zmod-cert \
+    -addext "subjectAltName=IP:10.9.0.1" -keyout /mnt/moonraker.key -out /mnt/moonraker.cert >/dev/null 2>&1
+cp /mnt/moonraker.cert "$W/pc/zmod.cert"
 mkdir -p /data/update && tar -xf "$PKG" -C /data/update
 PATH="$W/shim:$PATH" sh /data/update/flashforge_init.sh Adventurer5MPro 0024 >"$W/install.out" 2>&1
 check "installer exit 0"                       grep -q "installed" /mnt/zforge-install.log
@@ -59,8 +63,11 @@ check "installer asked for reboot"             grep -q "reboot requested" "$W/in
 check "boot hook installed"                    cmp /etc/init.d/S35zforge /data/.zforge/share/S35zforge
 check "SSH key imported from stick"            grep -qF "$(cat "$W/pc/id.pub")" /data/.zforge/etc/ssh/authorized_keys
 check "moonraker.user.conf imported"           grep -q "user include from the stick" /data/.zforge/etc/moonraker.user.conf
+check "existing certificate imported"          cmp /mnt/moonraker.cert /data/.zforge/var/moonraker/certs/moonraker.cert
 echo 'SWAP_MB=16' >>/data/.zforge/etc/zforge.conf
 echo 'NTP_SERVERS=""' >>/data/.zforge/etc/zforge.conf
+# qemu-user can't emulate netlink for the armv7 `ip`; use the host's in the simulation
+echo "ZF_IP=$(command -v ip)" >>/data/.zforge/etc/zforge.conf
 
 echo "== boot (S35zforge start)"
 /etc/init.d/S35zforge start
@@ -78,6 +85,7 @@ KEY=$(/data/.zforge/bin/zforge apikey show 2>/dev/null)
 code() { $LAN curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
 
 echo "== SSH (from the LAN)"
+check "/data made non-world-writable for dropbear" sh -c "[ -z \"\$(find /data -maxdepth 0 -perm -o+w)\" ]"
 check "ssh root with key works"                sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
 check "only publickey auth offered"            sh -c "$LAN $SSHC -o PreferredAuthentications=password -o BatchMode=yes root@10.9.0.1 true 2>&1 | grep -q 'Permission denied (publickey)'"
 echo "G1 X10" >"$W/pc/t1.gcode"
@@ -88,6 +96,7 @@ echo "== Moonraker over TLS (from the LAN)"
 check "API key readable (zforge apikey show)"  [ -n "$KEY" ]
 check "HTTPS without key -> 401"               [ "$(code -k https://10.9.0.1:7130/server/info)" = 401 ]
 check "HTTPS with key -> 200"                  [ "$(code -k -H "X-Api-Key: $KEY" https://10.9.0.1:7130/server/info)" = 200 ]
+check "served cert is the imported one"        [ "$(code --cacert "$W/pc/zmod.cert" -H "X-Api-Key: $KEY" https://10.9.0.1:7130/server/info)" = 200 ]
 check "cert verifies for the IP (no -k)"       [ "$(code --cacert "$CERT" -H "X-Api-Key: $KEY" https://10.9.0.1:7130/server/info)" = 200 ]
 check "CORS off: no ACAO header"               sh -c "! $LAN curl -sk -D - -o /dev/null -H 'Origin: http://evil.example' -H 'X-Api-Key: $KEY' https://10.9.0.1:7130/server/info | grep -qi access-control-allow-origin"
 check "plain HTTP 7125 from LAN: no answer"    [ "$(code http://10.9.0.1:7125/server/info)" = 000 ]
@@ -110,14 +119,33 @@ check "tls show prints a SHA-256 fingerprint"  sh -c "/data/.zforge/bin/zforge t
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$W/other.key" -out "$W/other.crt" -subj /CN=x -days 1 >/dev/null 2>&1
 check "tls import rejects a mismatched key"    sh -c "! /data/.zforge/bin/zforge tls import $CERT $W/other.key"
 
+/data/.zforge/bin/zforge tls regen >/dev/null 2>&1
+i=0; while [ $i -lt 60 ]; do [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ] && break; sleep 3; i=$((i + 1)); done
+check "tls regen: new cert served, verifies"   [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ]
+check "tls regen: old cert no longer served"   [ "$(code --cacert "$W/pc/zmod.cert" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 000 ]
+cp "$CERT" "$W/pc/before-upgrade.cert"
+
+echo "== upgrade over SSH (same package again)"
+$LAN $SSHC root@10.9.0.1 "rm -rf /data/.zforge-update && mkdir -p /data/.zforge-update && tar -xf - -C /data/.zforge-update" <"$PKG"
+$LAN $SSHC root@10.9.0.1 "PATH=$W/shim:\$PATH sh /data/.zforge-update/flashforge_init.sh --ssh" >"$W/upgrade.out" 2>&1
+check "upgrade installer succeeded"            grep -q "installed" "$W/upgrade.out"
+check "upgrade kept SSH keys"                  grep -qF "$(cat "$W/pc/id.pub")" /data/.zforge/etc/ssh/authorized_keys
+check "upgrade kept the certificate"           cmp "$W/pc/before-upgrade.cert" "$CERT"
+check "upgrade kept config"                    grep -q '^SWAP_MB=16' /data/.zforge/etc/zforge.conf
+/etc/init.d/S35zforge start
+i=0; while [ $i -lt 60 ]; do [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ] && break; sleep 3; i=$((i + 1)); done
+check "after upgrade: same API key works"      [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ]
+check "after upgrade: ssh works"               sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
+
 echo "== shutdown and disable"
 /etc/init.d/S35zforge stop
-check "services stopped"                       sh -c "! pgrep -f 'moonraker.py|dropbear' >/dev/null"
+pgrep -a -f '[m]oonraker.py|[d]ropbear' | sed 's/^/        still running: /'
+check "services stopped"                       sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear' >/dev/null"
 check "chroot mounts gone"                     sh -c "! grep -q ' /data/.zforge/rootfs/' /proc/mounts"
 : >/data/.zforge/disabled
 /etc/init.d/S35zforge start >/dev/null
 sleep 3
-check "disabled: nothing starts"               sh -c "! pgrep -f 'moonraker.py|dropbear' >/dev/null"
+check "disabled: nothing starts"               sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear' >/dev/null"
 
 echo
 if [ "$FAILS" = 0 ]; then echo "ALL PASSED"; else
