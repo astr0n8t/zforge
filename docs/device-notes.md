@@ -59,7 +59,7 @@ Printer: AD5M Pro · stock firmware **3.2.3** (`/opt/PROGRAM/software/3.2.3`, li
 
 | # | Question | Where to look | Answer |
 |---|---|---|---|
-| 11 | Are update packages signed or encrypted (look for md5/sha/rsa/aes near update code)? | `strings/*` | |
+| 11 | Are update packages signed or encrypted (look for md5/sha/rsa/aes near update code)? | `strings/*` | **No.** They are plain tar (even the `.tar.xz` parts), checked only by per-component `md5sum.list`. Full format in [`stock/update-package.md`](stock/update-package.md) |
 | 12 | Is `ip route blackhole` supported (firewall fallback)? | `kernel/blackhole-route` | Yes in the kernel (FIB rules/types). The stock BusyBox `ip` may not expose port selectors, so zforge ships iproute2 |
 | 13 | Stock Python version (could Moonraker reuse it, or does it need the chroot)? | `klipper/python` | 3.7.11 (`/opt/Python-3.7.11`). Current Moonraker needs **≥ 3.10**, so the chroot is required |
 | 14 | Gcode directory the stock screen lists | `files/opt/config/`, `strings/*firmwareExe*` | `/data` (top level), with `/data/3mf/…` for 3mf jobs. zmod uses `/data` as Moonraker's gcode root |
@@ -68,5 +68,5 @@ Printer: AD5M Pro · stock firmware **3.2.3** (`/opt/PROGRAM/software/3.2.3`, li
 ## Separate checks (not covered by the probe)
 
 - [x] Partition backup: p1–p5 and the disk head are verified. p6 `rootfs` is saved but changed during the read. That's fine for reference, but **the official firmware `.tgz` plus factory reset is the real restore path**.
-- [ ] A copy of the stock update `.tgz` for the current firmware version is kept with the backup.
+- [~] Reference package analysed: `Adventurer5MPro-3.1.3-2.2.3-20250107-Factory.tgz`. It's older than the installed 3.2.3, so **don't install it**. Keep a 3.2.3 (or newer) package with the backup for recovery.
 - [ ] The UART recovery steps are understood (3.3 V adapter only), and the factory-reset procedure has been read.

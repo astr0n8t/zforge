@@ -93,14 +93,18 @@ zforge uninstall                  remove hook + /data/zforge, restore backups
 
 ## Firmware updates (goal 3)
 
-The hard part is making zforge survive a stock update. An update rewrites the stock rootfs, so it can delete the hook. Plan:
+The package format and installer are documented in [`docs/stock/update-package.md`](docs/stock/update-package.md). Updates never touch `/etc/init.d/S*` or `/data`, so **the zforge hook and install survive stock updates as they are**. The update does overwrite the Wi-Fi config, `/etc/shadow` and the printer config files, and it never reboots by itself.
 
-1. **`zforge fw install`** is the supported path. It:
-   - verifies the package: model prefix `Adventurer5MPro-`, a sane tar layout, an optional SHA256 the user supplies;
-   - checks preconditions: MCU on stock firmware (if not, it refuses or offers `zforge klipper stock`), enough free space, no print running;
-   - does exactly what `auto_run.sh` does: copies the package to `/data`, `tar -xf` into `/data/update/`, and runs `flashforge_init.sh Adventurer5MPro 0024`. The script runs with `reboot` shimmed through `PATH`, so control comes back to zforge before the reboot;
-   - reinstalls the one-line hook if the update removed it, records the new stock version, and reboots for real.
-   - *Still open:* what a stock `flashforge_init.sh` touches (whether it rewrites `/etc/init.d` or uses `reboot`, `reboot -f` or sysrq). Read it from a real 3.2.x update `.tgz` before implementing.
+1. **`zforge fw install <file.tgz|url>`** is the supported path. It:
+   - pre-flights the package:
+     - an `Adventurer5MPro-` name and an outer tar containing `flashforge_init.sh`;
+     - every component's `md5sum.list` passes;
+     - no downgrade and no *Factory* (`screwflag`) package unless `--force`;
+     - an optional SHA256 the user supplies;
+   - checks the printer: no print running, enough free space on `/data`, MCU on stock firmware;
+   - snapshots `/etc/wpa_supplicant.conf`, the hostapd conf and `/opt/config/printer*.cfg` into `/data/zforge/backup/<date>/`;
+   - does exactly what `auto_run.sh` does: copies the package to `/data`, `tar -xf` into `/data/update/`, and runs `flashforge_init.sh Adventurer5MPro 0024`;
+   - restores the Wi-Fi config, checks the hook is still there, records the new stock version, and reboots.
 2. **Touchscreen OTA keeps working.** `zforge fw allow-ota` opens just the update hosts for a while. After an OTA install the hook may be gone. Because everything else is on `/data`, re-arming takes either a tiny USB `flashforge_init.sh` (ships in every release) or, if the hook survived, nothing at all.
 3. **USB updates keep working** exactly as stock. The same re-arm stick applies afterwards.
 
