@@ -54,7 +54,16 @@ mkdir -p "$ZF/etc/ssh" "$ZF/var/log" && chmod 700 "$ZF/etc/ssh"
 log "unpacking rootfs"
 rm -rf "$ZF/rootfs.new"
 mkdir -p "$ZF/rootfs.new"
-tar -xzf "$WORK_DIR/zforge-rootfs-armv7.tar.gz" -C "$ZF/rootfs.new" || fail "rootfs unpack failed (disk full?)"
+# The stock BusyBox tar has no -z: decompress with gzip and pipe. Check both
+# halves (BusyBox 1.29 ash may lack pipefail) and log the real error.
+rm -f "$ZF/.gunzip-failed"
+{ gzip -dc "$WORK_DIR/zforge-rootfs-armv7.tar.gz" 2>>"$LOGF" || : >"$ZF/.gunzip-failed"; } |
+    tar -xf - -C "$ZF/rootfs.new" 2>>"$LOGF"
+tar_rc=$?
+if [ -e "$ZF/.gunzip-failed" ] || [ "$tar_rc" != 0 ]; then
+    rm -f "$ZF/.gunzip-failed"; rm -rf "$ZF/rootfs.new"
+    fail "rootfs unpack failed (tar rc=$tar_rc; see the errors above; free on /data: $(df -k /data | awk 'NR==2 {print $4}') kB)"
+fi
 
 log "installing scripts and binaries"
 rm -rf "$ZF/code.new" && mkdir -p "$ZF/code.new"
@@ -90,9 +99,11 @@ if [ "$MODE" = usb ] && grep -q " /mnt " /proc/mounts; then
 fi
 [ -s "$ZF/etc/ssh/authorized_keys" ] || log "WARNING: no SSH keys installed; put authorized_keys on the stick and re-run to get SSH access"
 
-# ---------------------------------------------------------------- boot hook (the one file on the stock system)
+# ---------------------------------------------------------------- the two files on the stock system
 cp "$ZF/share/S35zforge" /etc/init.d/S35zforge.new && chmod 755 /etc/init.d/S35zforge.new &&
     mv /etc/init.d/S35zforge.new /etc/init.d/S35zforge || fail "could not install /etc/init.d/S35zforge"
+mkdir -p /etc/profile.d && cp "$ZF/share/zforge-profile.sh" /etc/profile.d/zforge.sh && chmod 644 /etc/profile.d/zforge.sh ||
+    log "WARNING: could not install /etc/profile.d/zforge.sh (zforge is then at /data/.zforge/bin/zforge)"
 rm -f "$ZF/disabled"
 
 # Certificate import needs the chroot (openssl), so it runs after the rootfs is in place.

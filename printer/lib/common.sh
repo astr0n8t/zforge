@@ -21,6 +21,7 @@ ZF_LOG=$ZF_VAR/log
 ZF_RUN=$ZF_SYSROOT/var/run/zforge
 ZF_CONF=$ZF_ETC/zforge.conf
 ZF_HOOK=$ZF_SYSROOT/etc/init.d/S35zforge
+ZF_PROFILE=$ZF_SYSROOT/etc/profile.d/zforge.sh
 ZF_DISABLED=$ZF/disabled
 
 MR_DATA_REL=$ZF_HOME/var/moonraker      # path inside the chroot

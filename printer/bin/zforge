@@ -3,6 +3,8 @@
 # Runs on the stock BusyBox shell. See `zforge help`.
 
 set -u
+# Don't depend on the caller's PATH (stock keeps chroot, swapon etc. in sbin).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:$PATH
 ZF_SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
 ZF_LIBDIR=${ZF_LIBDIR:-$(cd "$(dirname "$ZF_SELF")/../lib" && pwd)}
 . "$ZF_LIBDIR/common.sh"
@@ -63,11 +65,18 @@ cmd_shutdown() {
     zf_umount_chroot
 }
 
+# zforge's only files on the stock system: the boot hook and a PATH snippet.
+# Reinstalled at every boot if missing or outdated (e.g. after an update).
 hook_check() {
-    if ! cmp -s "$ZF_SHARE/S35zforge" "$ZF_HOOK" 2>/dev/null; then
-        zf_log "installing boot hook $ZF_HOOK"
-        cp "$ZF_SHARE/S35zforge" "$ZF_HOOK.new" && chmod 755 "$ZF_HOOK.new" && mv "$ZF_HOOK.new" "$ZF_HOOK"
-    fi
+    install_stock_file "$ZF_SHARE/S35zforge" "$ZF_HOOK" 755
+    install_stock_file "$ZF_SHARE/zforge-profile.sh" "$ZF_PROFILE" 644
+}
+
+install_stock_file() {  # SRC DEST MODE
+    cmp -s "$1" "$2" 2>/dev/null && return 0
+    zf_log "installing $2"
+    mkdir -p "$(dirname "$2")"
+    cp "$1" "$2.new" && chmod "$3" "$2.new" && mv "$2.new" "$2"
 }
 
 swap_on() {

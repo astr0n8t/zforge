@@ -24,8 +24,8 @@ tls_generate() {
         -days "$TLS_DAYS" -subj "/CN=$host" \
         -addext "subjectAltName=$san" \
         -addext "extendedKeyUsage=serverAuth" \
-        -keyout "$TLS_KEY_REL.new" -out "$TLS_CERT_REL.new" >/dev/null 2>&1 ||
-        zf_die "openssl failed"
+        -keyout "$TLS_KEY_REL.new" -out "$TLS_CERT_REL.new" >"$ZF_LOG/openssl.err" 2>&1 ||
+        zf_die "openssl failed: $(tail -n 3 "$ZF_LOG/openssl.err" | tr '\n' ' ')"
     chmod 600 "$ZF_SYSROOT$TLS_KEY_REL.new"
     mv "$ZF_SYSROOT$TLS_KEY_REL.new" "$ZF_SYSROOT$TLS_KEY_REL"
     mv "$ZF_SYSROOT$TLS_CERT_REL.new" "$ZF_SYSROOT$TLS_CERT_REL"
@@ -47,8 +47,8 @@ tls_import() {  # tls_import CERT KEY (paths on the printer)
 # print the public key of a certificate (x509) or private key (pkey), read from stdin
 zf_chroot_file_pubkey() {
     case "$1" in
-        x509) zf_chroot openssl x509 -noout -pubkey <"$2" 2>/dev/null ;;
-        pkey) zf_chroot openssl pkey -pubout <"$2" 2>/dev/null ;;
+        x509) zf_chroot openssl x509 -noout -pubkey <"$2" 2>>"$ZF_LOG/openssl.err" ;;
+        pkey) zf_chroot openssl pkey -pubout <"$2" 2>>"$ZF_LOG/openssl.err" ;;
     esac
 }
 
