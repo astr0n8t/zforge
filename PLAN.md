@@ -17,7 +17,7 @@ Anything zmod offers beyond those goals: macro libraries, Fluidd/Mainsail themin
 ## Guiding principles
 
 - **Touch the stock root filesystem as little as possible.** Exactly one hook file goes into the stock rootfs. Everything else lives in one directory on the data partition (`/data/zforge`). Uninstalling means deleting the hook and the directory.
-- **Self-contained userland.** zforge ships its own armv7 rootfs (an Alpine minirootfs) and runs it through `chroot`. That rootfs carries Python, Moonraker, Klipper, dropbear and nftables. Stock binaries and libraries are never patched.
+- **Self-contained userland.** zforge ships its own armv7 rootfs (an Alpine minirootfs) and runs it through `chroot`. That rootfs carries Python, Moonraker, Klipper, dropbear and iproute2. It is a plain directory on the data partition, because the kernel has no loop device, overlayfs or squashfs. Stock binaries and libraries are never patched.
 - **Stock firmware stays in charge of the hardware.** By default the stock screen (`firmwareExe`) and the stock Klipper keep running. zforge adds to the system and swaps components in only where a feature needs it.
 - **Every risky change can be undone without SSH.** Each risky step has a matching USB recovery path that works through the stock `flashforge_init.sh` mechanism.
 - **Plain shell where possible.** The CLI, the hook and the installer are POSIX `sh`, so there is no daemon of our own to maintain.
@@ -40,7 +40,7 @@ stock rootfs (untouched except one file)
  └─ /etc/init.d/S99zforge  ──►  /data/zforge/bin/zforge boot   (a no-op if zforge is missing or disabled)
 
 /data/zforge/
- ├─ rootfs/              Alpine armv7 chroot: python3, moonraker, klipper, dropbear, nftables
+ ├─ rootfs/              Alpine armv7 chroot (plain dir): python3, moonraker, klipper, dropbear, iproute2
  ├─ etc/zforge.conf      the only file a user normally edits
  ├─ etc/firewall.d/      rule profiles + user rules
  ├─ etc/ssh/             authorized_keys, host keys (persistent)
@@ -55,9 +55,9 @@ stock rootfs (untouched except one file)
 |---|---|---|
 | firmwareExe (screen) | stock | unchanged |
 | Klipper | stock `/opt/klipper` | unchanged; zforge only adds a `[include zforge.cfg]` if needed for Moonraker |
-| Moonraker | chroot | talks to stock klippy's API socket; binds :7125 |
+| Moonraker | chroot | talks to stock klippy's API socket; binds :7125; `file_system_observer: none` (kernel has no inotify) |
 | dropbear | chroot | :22, root login by key only (password optional) |
-| nftables ruleset | chroot binary, host kernel | applied at boot before network services start |
+| policy-routing firewall | `ip rule` from chroot iproute2 | applied at boot before network services start |
 
 ### Optional "mainline-klipper" mode (Phase 4)
 
@@ -98,14 +98,32 @@ The firewall stays strict by default. You download the `.tgz` on a PC and `scp` 
 
 ## Firewall (goal 4)
 
-**Kernel capability decides the design, so it is the first thing Phase 0 checks** (`/proc/config.gz`, `/lib/modules`, `nft list ruleset`, `iptables -L`):
+**Finding (Phase 0, from the backed-up kernel's embedded config):** the stock kernel, Linux 5.4.61, has **no netfilter** (`# CONFIG_NETFILTER is not set`). So there is no iptables and no nftables. Netfilter can't be added as a module either, because its hooks are compiled into the core network stack. The kernel does have policy routing (`CONFIG_IP_MULTIPLE_TABLES`, `CONFIG_FIB_RULES`). Since kernel 4.17, `ip rule` can match on protocol and port (`ipproto`, `sport`, `dport`), and the firewall is built on that. IPv6 has no policy tables (`# CONFIG_IPV6_MULTIPLE_TABLES is not set`), so zforge turns IPv6 off with sysctl.
 
-- **Primary (netfilter present):** an nftables ruleset loaded at boot, before the stock network services come up.
-  - *Inbound:* default deny. Allow 22, 7125 and 80 (optional web UI) from the configured LAN CIDR(s). Stock ports 8898/8899 (Flashforge LAN, FlashPrint, Orca native) and 8080 (camera) are toggles.
-  - *Outbound:* default deny. Allow LAN, DNS to the configured resolver, NTP, plus named allow-lists. Stock processes all run as root, so per-process rules are not possible. The policy is per destination instead.
-  - Hosts in `allow` are resolved to IP sets at apply time and refreshed periodically.
-  - Profiles: `open` (stock behavior), `lan` (no internet at all), `strict` (LAN plus explicit allow-list). The default is `lan`.
-- **Fallback (no netfilter in the stock kernel):** `/etc/hosts` sinkholing (as zmod does), plus `ip route add blackhole` for the vendor IP ranges, plus a default route limited to the LAN when the profile is `lan`. This is weaker, because it cannot restrict inbound ports. We document that and do not pretend otherwise. A later option is building the missing netfilter modules for the stock kernel version, if the kernel source and config are available.
+**Firewall = an ordered list of `ip rule`s.** It is applied at boot before the stock network services start. Each packet's route lookup walks the rules in order:
+
+```
+pref 10-99   iif <wlan/eth> [from <src>] ipproto tcp|udp dport <port> blackhole   # inbound port blocks
+pref 10-99   ipproto tcp sport <port> prohibit                                     # silence a local service's replies
+pref 100     lookup local                                                          # (moved from pref 0 so the rules above can win)
+pref 200     to <LAN_CIDRS> lookup main                                            # LAN reachable
+pref 210+    to <allow-listed IPs> lookup main                                     # resolved from ALLOW_OUT
+pref 300     prohibit                                                              # all other destinations: denied (profile lan/strict)
+```
+
+- *Inbound:* stock ports 8898/8899 (Flashforge LAN API, FlashPrint, Orca native) and 8080 (camera) are toggles. The rule set can also restrict SSH and Moonraker to given source addresses.
+- *Outbound:* default deny. Allowed: the LAN, DNS to the configured resolver, NTP, and named allow-lists. Stock processes all run as root, so the policy is per destination, not per process.
+  - Allow-listed host names are resolved to /32 rules when the firewall is applied, and refreshed periodically.
+  - `/etc/hosts` sinkholing of the vendor hosts stays as defence in depth.
+  - DHCP renewals rewrite the `main` table, not the rules, so the firewall survives them.
+- *Profiles:* `open` (stock behavior), `lan` (no internet at all), `strict` (LAN plus explicit allow-list). The default is `lan`.
+- *Validated* in a network-namespace test (`tests/` in Phase 2):
+  - an inbound port block and a reply block each shut a service off while SSH stays open;
+  - an internet destination is denied while LAN, allow-listed and loopback traffic work.
+
+  Re-check it on the printer's 5.4 kernel and its iproute2. zforge ships a full `ip` binary, because BusyBox's `ip` may lack the port selectors.
+- *Limits compared with netfilter:* the rules are stateless, with no logging, rate limiting or ICMP filtering. Inbound blocks apply per port and per source, not per connection state. That's enough for "the stock firmware can't phone home, and only my hosts can reach it."
+- *Optional later:* a custom 5.4 kernel with netfilter, booted from the FAT `boot-resource` partition (U-Boot loads `uImage` from there, so swapping and reverting is easy), and only if the policy-routing firewall proves insufficient. It risks driver mismatches and needs UART for recovery.
 - **Lockout protection:** `zforge firewall apply` rolls back after N seconds unless confirmed. Holding a USB stick with `zforge-firewall-off` at boot also skips the firewall.
 
 Config example (`/data/zforge/etc/zforge.conf`):
@@ -161,7 +179,8 @@ Stock Orca: Printer → Connection → host type "Octo/Klipper", host `PRINTER_I
 
 | Risk | Mitigation |
 |---|---|
-| Stock kernel has no netfilter | Fallback mode (documented as weaker); investigate building modules |
+| ~~Stock kernel has no netfilter~~ **Confirmed** | Policy-routing firewall (validated in netns); custom kernel only if needed |
+| Kernel lacks inotify, cgroups, namespaces, loop, overlayfs | Moonraker without inotify; plain-directory chroot; no containers |
 | 128 MB RAM is too tight for Moonraker + stock screen + Klipper | Measure in Phase 0; lean Moonraker config (no extra components); optional swap file on `/data`; screen-off mode as last resort |
 | Update packages are signed/encrypted, or the installer can't be shimmed | Fall back to "update via screen/USB, then re-arm" (still meets the goal) |
 | Stock firmware updates move the hook location or init system | Hook installer checks several known locations; re-arm USB stick is always available |

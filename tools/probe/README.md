@@ -15,7 +15,7 @@ If the printer's dropbear rejects your client, pass extra options:
 tools/probe/run-probe.sh root@PRINTER_IP
 ```
 
-This prints `SUMMARY.txt` and unpacks the full report into `probe-<date>/report/`:
+This prints `SUMMARY.txt` and unpacks the full report into `probe-<date>/report/`. Printer-side progress and errors are saved to `probe-<date>/probe.log`. If the probe fails, that file says why.
 
 | Path | Contents |
 |---|---|
@@ -43,7 +43,7 @@ What gets saved:
 - **The first 16 MiB of each whole disk**, which holds the partition table and the bootloader area.
 - **eMMC hardware boot partitions and raw MTD devices**, if the printer has them.
 
-Partitions over 1 GiB (usually the gcode/data partition) are skipped and listed in `manifest.txt`. Use `-m MB` to change the limit or `-a` to include everything.
+Partitions over 1 GiB are skipped and listed in `manifest.txt`. On the AD5M Pro that is only `UDISK`, the gcode/data partition. The stock `rootfs` partition is always saved, whatever its size. Use `-m MB` to change the limit or `-a` to include everything.
 
 Checks:
 - **Checksums:** each image is md5-checked against a second read on the printer.

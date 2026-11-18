@@ -13,25 +13,33 @@ PATH="$PATH:/sbin:/usr/sbin:/bin:/usr/bin"
 
 die() { echo "[backup] $*" >&2; exit 1; }
 
+# Output: NAME SIZE_KB KIND LABEL
 # KIND: disk = whole device (we only save its head: partition table +
-# bootloader area), part = partition, hwboot = eMMC hardware boot partition.
+# bootloader area), part = partition, hwboot = eMMC hardware boot partition,
+# mtd = raw NAND. LABEL is the GPT partition name (e.g. rootfs), or "-".
+label_of() {
+    _l=$(sed -n 's/^PARTNAME=//p' "/sys/class/block/$1/uevent" 2>/dev/null)
+    echo "${_l:--}"
+}
+
 list() {
     awk 'NR>2 {print $4, $3}' /proc/partitions | while read -r name kb; do
         case "$name" in
-            loop*|ram*|zram*|sr*|dm-*|nbd*) continue ;;
+            loop*|ram*|zram*|sr*|dm-*|nbd*|mmcblk*rpmb) continue ;;
             mmcblk*boot[0-9]) kind=hwboot ;;
-            mmcblk*rpmb) continue ;;
-            mmcblk[0-9]|sd[a-z]|vd[a-z]|mtdblock*)
-                # mtdblock devices are leaves; whole mmc/sd disks are not
-                case "$name" in mtdblock*) kind=part ;; *) kind=disk ;; esac ;;
+            mtdblock*)
+                # same flash as /dev/mtdN, which is listed below when present
+                [ -r /proc/mtd ] && continue
+                kind=part ;;
+            mmcblk[0-9]|sd[a-z]|vd[a-z]) kind=disk ;;
             *) kind=part ;;
         esac
-        echo "$name $kb $kind"
+        echo "$name $kb $kind $(label_of "$name")"
     done
-    # raw NAND (no block layer): also offer /dev/mtdN char devices
+    # raw NAND (no block layer): offer /dev/mtdN char devices
     if [ -r /proc/mtd ]; then
-        tail -n +2 /proc/mtd | while read -r dev size _rest; do
-            echo "${dev%:} $(( 0x$size / 1024 )) mtd"
+        tail -n +2 /proc/mtd | while read -r dev size _erase label; do
+            echo "${dev%:} $(( 0x$size / 1024 )) mtd $(echo "$label" | tr -d '"')"
         done
     fi
 }

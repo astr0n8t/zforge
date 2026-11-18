@@ -4,7 +4,8 @@
 #   tools/probe/run-backup.sh [-m MAX_MB] [-a] [-n] root@PRINTER [OUTDIR]
 #
 #   -m MAX_MB  skip partitions larger than this (default 1024); they are
-#              listed in the manifest so you can fetch them later with -a
+#              listed in the manifest so you can fetch them later with -a.
+#              The stock "rootfs" partition is always saved regardless.
 #   -a         back up everything regardless of size
 #   -n         dry run: only show what would be saved
 #
@@ -58,25 +59,26 @@ mkdir -p "$OUTDIR"
 MANIFEST="$OUTDIR/manifest.txt"
 {
     echo "# zforge backup of $TARGET on $(date)"
-    echo "# name size_kb kind action md5"
+    echo "# name size_kb kind label action md5"
 } >"$MANIFEST"
 
-echo "$LIST" | while read -r name kb kind; do
+echo "$LIST" | while read -r name kb kind label; do
+    label=${label:--}
     count=""
     case "$kind" in
         disk) count=$DISK_HEAD_KB; [ "$kb" != "?" ] && [ "$kb" -lt "$count" ] && count=$kb ;;
     esac
-    if [ -z "$count" ] && [ "$ALL" = 0 ] && [ "$kb" != "?" ] && [ "$kb" -gt $((MAX_MB * 1024)) ]; then
-        echo "skip  $name ($((kb / 1024)) MiB > $MAX_MB MiB, use -a)" >&2
-        echo "$name $kb $kind skipped -" >>"$MANIFEST"
+    if [ -z "$count" ] && [ "$ALL" = 0 ] && [ "$label" != rootfs ] && [ "$kb" != "?" ] && [ "$kb" -gt $((MAX_MB * 1024)) ]; then
+        echo "skip  $name [$label] ($((kb / 1024)) MiB > $MAX_MB MiB, use -a)" >&2
+        echo "$name $kb $kind $label skipped -" >>"$MANIFEST"
         continue
     fi
-    label=$name; [ -n "$count" ] && label="$name (first $((count / 1024)) MiB)"
+    what="$name [$label]"; [ -n "$count" ] && what="$what (first $((count / 1024)) MiB)"
     if [ "$DRY" = 1 ]; then
-        echo "would save $label" >&2
+        echo "would save $what" >&2
         continue
     fi
-    echo "save  $label ..." >&2
+    echo "save  $what ..." >&2
     out="$OUTDIR/$name.img.gz"
     remote dump "$name" $count | gzip -c >"$out"
     bytes=$(gzip -dc "$out" | wc -c | tr -d ' ')
@@ -84,7 +86,7 @@ echo "$LIST" | while read -r name kb kind; do
     if [ -n "$count" ]; then expect=$((count * 1024)); elif [ "$kb" != "?" ]; then expect=$((kb * 1024)); fi
     if [ "$bytes" = 0 ] || { [ -n "$expect" ] && [ "$bytes" != "$expect" ]; }; then
         echo "      FAILED: got $bytes bytes, expected ${expect:-?} (see error above)" >&2
-        echo "$name $kb $kind FAILED $bytes-bytes" >>"$MANIFEST"
+        echo "$name $kb $kind $label FAILED $bytes-bytes" >>"$MANIFEST"
         rm -f "$out"
         continue
     fi
@@ -92,11 +94,11 @@ echo "$LIST" | while read -r name kb kind; do
     got=$(gzip -dc "$out" | md5_local)
     if [ "$want" = "$got" ]; then
         echo "      ok $got" >&2
-        echo "$name $kb $kind saved $got" >>"$MANIFEST"
+        echo "$name $kb $kind $label saved $got" >>"$MANIFEST"
     else
         # Live, mounted filesystems can change between the two reads.
         echo "      MISMATCH printer=$want local=$got (live fs changed? re-run when idle)" >&2
-        echo "$name $kb $kind MISMATCH $got/$want" >>"$MANIFEST"
+        echo "$name $kb $kind $label MISMATCH $got/$want" >>"$MANIFEST"
     fi
 done
 

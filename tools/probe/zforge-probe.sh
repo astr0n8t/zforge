@@ -17,17 +17,16 @@ set -u
 export LC_ALL=C
 PATH="$PATH:/sbin:/usr/sbin:/bin:/usr/bin:/opt/bin:/opt/sbin"
 
-PROBE_VERSION=1
+PROBE_VERSION=2
 TMPBASE=${ZFORGE_PROBE_TMP:-/tmp}
 OUT="$TMPBASE/zforge-probe.$$"
 
 log() { echo "[probe] $*" >&2; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-cleanup() { rm -rf "$OUT"; }
+cleanup() { rm -rf "$OUT" "$TMPBASE/zforge-probe.$$.tgz"; }
 trap cleanup EXIT INT TERM
 
-mkdir -p "$OUT" || { log "cannot create $OUT"; exit 1; }
 
 # run NAME CMD... : capture stdout+stderr of a command into $OUT/NAME
 run() {
@@ -73,6 +72,12 @@ bin_strings() {
 }
 
 ###############################################################################
+# Everything below runs inside main(), which is only called on the last line.
+# When the script is piped in via `ssh ... 'sh -s' < zforge-probe.sh`, this
+# guarantees the shell has read the whole file before any command runs, and
+# main's stdin is /dev/null so no command can swallow the rest of the script.
+main() {
+mkdir -p "$OUT" || { log "cannot create $OUT"; exit 1; }
 log "system"
 run sys/uname          uname -a
 sh_run sys/os-release  'cat /etc/os-release /etc/issue /etc/version* 2>/dev/null'
@@ -267,4 +272,18 @@ yesno() { if eval "$1" >/dev/null 2>&1; then echo yes; else echo no; fi; }
 
 echo "$PROBE_VERSION" >"$OUT/PROBE_VERSION"
 log "packing ($(du -sk "$OUT" | awk '{print $1}') kB)"
-tar -C "$OUT" -czf - .
+# BusyBox tar may be built without gzip; fall back to tar|gzip, then plain tar.
+# run-probe.sh detects which format arrived.
+cd "$OUT" || exit 1
+if tar -czf "$TMPBASE/zforge-probe.$$.tgz" . 2>/dev/null; then
+    cat "$TMPBASE/zforge-probe.$$.tgz"
+elif have gzip; then
+    tar -cf - . | gzip -c
+else
+    tar -cf - .
+fi
+rm -f "$TMPBASE/zforge-probe.$$.tgz"
+log "done"
+}
+
+main "$@" </dev/null
