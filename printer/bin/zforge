@@ -1,0 +1,143 @@
+#!/bin/sh
+# zforge: minimal mod for the Flashforge Adventurer 5M Pro.
+# Runs on the stock BusyBox shell. See `zforge help`.
+
+set -u
+ZF_SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+ZF_LIBDIR=${ZF_LIBDIR:-$(cd "$(dirname "$ZF_SELF")/../lib" && pwd)}
+. "$ZF_LIBDIR/common.sh"
+. "$ZF_LIBDIR/services.sh"
+. "$ZF_LIBDIR/firewall.sh"
+. "$ZF_LIBDIR/moonraker.sh"
+. "$ZF_LIBDIR/tls.sh"
+
+zf_load_config
+mkdir -p "$ZF_LOG" "$ZF_RUN" 2>/dev/null
+
+usage() {
+    cat <<EOF
+zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null || echo "?")
+
+  zforge status                    services, ports, firewall, memory
+  zforge start|stop|restart [SVC]  services: sshd ntp moonraker (default: all)
+  zforge log [SVC]                 show the last log lines
+  zforge apikey show|rotate        Moonraker API key (rotate restarts Moonraker)
+  zforge tls show                  Moonraker HTTPS certificate and fingerprint
+  zforge tls regen                 new self-signed certificate (restarts Moonraker)
+  zforge tls import CERT KEY       use an existing certificate (restarts Moonraker)
+  zforge firewall status           current ip rules
+  zforge shell                     enter the zforge chroot (Alpine)
+  zforge enable|disable            run / skip zforge at next boot
+  zforge version
+
+  (boot / shutdown are called by /etc/init.d/S35zforge)
+EOF
+}
+
+cmd_boot() {
+    export ZF_COMPONENT=boot
+    zf_log "boot: zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null)"
+    # The hook must survive anything: make sure it is still installed and current.
+    hook_check
+    # Synchronous part: must finish before S40network brings interfaces up.
+    fw_apply_base || zf_log "firewall base rules FAILED"
+    # Everything else in the background so the stock boot isn't delayed.
+    (
+        swap_on
+        zf_mount_chroot
+        svc_start sshd
+        svc_start ntp
+        if [ "$MOONRAKER" = on ]; then
+            mr_prepare
+            tls_ensure_wait    # waits for an IP address and a sane clock if a cert must be made
+            svc_start moonraker
+        fi
+        zf_log "boot: background start finished"
+    ) </dev/null >>"$ZF_LOG/zforge.log" 2>&1 &
+    return 0
+}
+
+cmd_shutdown() {
+    for s in moonraker ntp sshd; do svc_stop "$s"; done
+    swapoff "$ZF_VAR/swap" 2>/dev/null
+    zf_umount_chroot
+}
+
+hook_check() {
+    if ! cmp -s "$ZF_SHARE/S35zforge" "$ZF_HOOK" 2>/dev/null; then
+        zf_log "installing boot hook $ZF_HOOK"
+        cp "$ZF_SHARE/S35zforge" "$ZF_HOOK.new" && chmod 755 "$ZF_HOOK.new" && mv "$ZF_HOOK.new" "$ZF_HOOK"
+    fi
+}
+
+swap_on() {
+    [ "${SWAP_MB:-0}" -gt 0 ] || return 0
+    sw="$ZF_VAR/swap"
+    if grep -q "^$ZF_HOME/var/swap " "$ZF_SYSROOT/proc/swaps" 2>/dev/null; then return 0; fi
+    want=$((SWAP_MB * 1024 * 1024))
+    have=$(wc -c <"$sw" 2>/dev/null || echo 0)
+    if [ "$have" != "$want" ]; then
+        zf_log "creating ${SWAP_MB} MB swap file"
+        rm -f "$sw"
+        dd if=/dev/zero of="$sw" bs=1M count="$SWAP_MB" 2>/dev/null && chmod 600 "$sw" && mkswap "$sw" >/dev/null ||
+            { zf_log "swap creation failed"; rm -f "$sw"; return 1; }
+    fi
+    swapon "$sw" && zf_log "swap on ($SWAP_MB MB)"
+}
+
+cmd_status() {
+    echo "zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null)   $( [ -e "$ZF_DISABLED" ] && echo "(DISABLED at next boot)")"
+    echo
+    for s in sshd ntp moonraker; do printf '  %-10s %s\n' "$s" "$(svc_status "$s")"; done
+    echo
+    echo "listening (tcp):"
+    netstat -tln 2>/dev/null | awk 'NR>2 {print "  " $4}' | sort -u
+    echo
+    echo "memory:"; free 2>/dev/null | sed 's/^/  /'
+    echo
+    fw_status | sed 's/^/  /'
+}
+
+cmd_apikey() {
+    zf_mount_chroot
+    db="$MR_DATA_REL/database/moonraker-sql.db"
+    [ -f "$ZF_SYSROOT$db" ] || zf_die "Moonraker database not found yet (has Moonraker started once?)"
+    case "${1:-show}" in
+        show)   mr_sql "$db" show ;;
+        rotate) mr_sql "$db" rotate && svc_restart moonraker ;;
+        *) usage; exit 2 ;;
+    esac
+}
+
+cmd_tls() {
+    zf_mount_chroot
+    case "${1:-show}" in
+        show)   tls_show ;;
+        regen)  tls_generate && svc_restart moonraker ;;
+        import) [ $# -eq 3 ] || zf_die "usage: zforge tls import CERT KEY"
+                tls_import "$2" "$3" && svc_restart moonraker ;;
+        *) usage; exit 2 ;;
+    esac
+}
+
+svc_args() { if [ $# -gt 0 ]; then echo "$@"; else echo "sshd ntp moonraker"; fi; }
+
+case "${1:-help}" in
+    __run)     shift; svc_exec "$1" ;;      # internal: used by the supervisor
+    boot)      cmd_boot ;;
+    shutdown)  cmd_shutdown ;;
+    status)    cmd_status ;;
+    start)     shift; zf_mount_chroot; for s in $(svc_args "$@"); do [ "$s" = moonraker ] && mr_prepare; svc_start "$s"; done ;;
+    stop)      shift; for s in $(svc_args "$@"); do svc_stop "$s"; done ;;
+    restart)   shift; zf_mount_chroot; for s in $(svc_args "$@"); do svc_restart "$s"; done ;;
+    log)       shift; tail -n 50 "$ZF_LOG/${1:-zforge}.log" ;;
+    apikey)    shift; cmd_apikey "$@" ;;
+    tls)       shift; cmd_tls "$@" ;;
+    firewall)  shift; case "${1:-status}" in status) fw_status ;; apply) fw_apply_base ;; *) usage; exit 2 ;; esac ;;
+    shell)     zf_mount_chroot; exec chroot "$ZF_ROOTFS" /bin/sh -l ;;
+    enable)    rm -f "$ZF_DISABLED"; echo "zforge will run at next boot" ;;
+    disable)   : >"$ZF_DISABLED"; echo "zforge will be skipped at next boot (services keep running until then)" ;;
+    version)   cat "$ZF_SHARE/VERSION" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 2 ;;
+esac

@@ -1,0 +1,88 @@
+# zforge services: tiny supervisor (restart on exit) for sshd, ntp, moonraker.
+#
+# Each service runs as `zforge __run NAME` inside its own session (setsid),
+# so stopping it is one signal to the process group.
+
+svc_pidfile() { echo "$ZF_RUN/$1.pid"; }
+
+svc_alive() {
+    p=$(cat "$(svc_pidfile "$1")" 2>/dev/null) || return 1
+    [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+svc_status() {
+    if svc_alive "$1"; then echo "running (pid $(cat "$(svc_pidfile "$1")"))"; else echo "stopped"; fi
+}
+
+svc_pre() {  # one-time preparation before the first start
+    case "$1" in
+        sshd)
+            mkdir -p "$ZF_ETC/ssh" && chmod 700 "$ZF_ETC/ssh"
+            if [ ! -f "$ZF_ETC/ssh/dropbear_ed25519_host_key" ]; then
+                zf_log "generating SSH host key"
+                "$ZF_BIN/dropbearkey" -t ed25519 -f "$ZF_ETC/ssh/dropbear_ed25519_host_key" >/dev/null 2>&1 ||
+                    { zf_log "dropbearkey failed"; return 1; }
+            fi
+            [ -s "$ZF_ETC/ssh/authorized_keys" ] ||
+                zf_log "WARNING: $ZF_HOME/etc/ssh/authorized_keys is empty; nobody can log in (password login is compiled out)"
+            chmod 600 "$ZF_ETC/ssh/authorized_keys" 2>/dev/null
+            ;;
+    esac
+    return 0
+}
+
+svc_start() {
+    n=$1
+    if svc_alive "$n"; then return 0; fi
+    svc_pre "$n" || return 1
+    logf="$ZF_LOG/$n.log"
+    # keep logs small: one rotation at 512 KB
+    if [ "$(wc -c <"$logf" 2>/dev/null || echo 0)" -gt 524288 ]; then mv -f "$logf" "$logf.1"; fi
+    # shellcheck disable=SC2016  # expanded by the supervisor shell
+    setsid sh -c '
+        while :; do
+            "$0" __run "$1"
+            echo "[supervise] $1 exited (rc=$?), restarting in 5s"
+            sleep 5
+        done' "$ZF_SELF" "$n" >>"$logf" 2>&1 </dev/null &
+    echo "$!" >"$(svc_pidfile "$n")"
+    zf_log "started $n (pid $!)"
+}
+
+svc_stop() {
+    n=$1; pf=$(svc_pidfile "$n")
+    p=$(cat "$pf" 2>/dev/null) || return 0
+    if kill -0 "$p" 2>/dev/null; then
+        kill -TERM -- "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+        i=0; while kill -0 "$p" 2>/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+        kill -KILL -- "-$p" 2>/dev/null
+        zf_log "stopped $n"
+    fi
+    rm -f "$pf"
+}
+
+svc_restart() { svc_stop "$1"; [ "$1" = moonraker ] && mr_prepare; svc_start "$1"; }
+
+# The actual service commands (called via `zforge __run NAME`).
+svc_exec() {
+    case "$1" in
+        sshd)
+            exec "$ZF_BIN/dropbear" -F -E -p "$SSH_PORT" \
+                -r "$ZF_HOME/etc/ssh/dropbear_ed25519_host_key" \
+                -D "$ZF_HOME/etc/ssh"
+            ;;
+        ntp)
+            set --
+            for s in $NTP_SERVERS; do set -- "$@" -p "$s"; done
+            [ $# -gt 0 ] || { echo "no NTP_SERVERS configured"; sleep 3600; exit 0; }
+            exec chroot "$ZF_ROOTFS" /bin/busybox ntpd -n "$@"
+            ;;
+        moonraker)
+            exec chroot "$ZF_ROOTFS" /usr/bin/env -i \
+                PATH=/opt/moonraker-env/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
+                nice -n 10 /opt/moonraker-env/bin/python /opt/moonraker/moonraker/moonraker.py \
+                -d "$MR_DATA_REL" -c "$MR_DATA_REL/config/moonraker.conf" -l "$MR_DATA_REL/logs/moonraker.log"
+            ;;
+        *) echo "unknown service $1"; exit 2 ;;
+    esac
+}

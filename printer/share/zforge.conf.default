@@ -1,0 +1,23 @@
+# zforge configuration: plain sh, sourced at every start.
+# Changes take effect after `zforge restart` (services) or a reboot (firewall).
+
+# Interfaces the firewall polices (names may not exist yet at boot).
+NET_IFACES="wlan0 eth0"
+
+# Root SSH (key only). Keys: /data/.zforge/etc/ssh/authorized_keys
+SSH_PORT=22
+
+# Moonraker: HTTPS for clients; plain HTTP stays loopback-only (always).
+MOONRAKER=on
+MOONRAKER_HTTPS_PORT=7130
+MOONRAKER_HTTP_PORT=7125
+
+# Swap file on /data (MB). The printer has only 110 MB of RAM. 0 = no swap.
+SWAP_MB=128
+
+# Time sync (needed for a valid TLS certificate). A LAN NTP server (e.g. your
+# router) keeps working when the firewall blocks the internet in Phase 2.
+NTP_SERVERS="pool.ntp.org"
+
+# Validity of a generated certificate, in days (825 is the most macOS accepts).
+TLS_DAYS=825

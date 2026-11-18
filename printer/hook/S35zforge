@@ -1,0 +1,28 @@
+#!/bin/sh
+# zforge boot hook: the only file zforge adds to the stock system.
+# Runs from /etc/init.d/rcS before S40network, so the firewall is in place
+# before any interface comes up. Everything else lives in /data/.zforge.
+#
+# To disable zforge without SSH, use the "disable" rescue USB stick
+# (a flashforge_init.sh that creates /data/.zforge/disabled), or delete
+# this file.
+
+ZF_HOME=/data/.zforge
+
+case "$1" in
+    start)
+        # Stock mounts /data (mmcblk0p7) later, in /opt/auto_run.sh. Mount it
+        # now, with the same fsck stock does; auto_run then sees it mounted.
+        if ! grep -q " /data " /proc/mounts; then
+            fsck -y /dev/mmcblk0p7 >/dev/null 2>&1
+            mount /dev/mmcblk0p7 /data || exit 0
+        fi
+        [ -x "$ZF_HOME/bin/zforge" ] || exit 0
+        [ -e "$ZF_HOME/disabled" ] && { echo "zforge: disabled"; exit 0; }
+        "$ZF_HOME/bin/zforge" boot
+        ;;
+    stop)
+        [ -x "$ZF_HOME/bin/zforge" ] && "$ZF_HOME/bin/zforge" shutdown
+        ;;
+esac
+exit 0
