@@ -36,8 +36,8 @@ Confirmed from the partition backup of firmware 3.2.3 (details in [`docs/device-
 - **Cloud:** firmwareExe talks to many hosts, and the list grows with each release. 5.2.0 adds the voxelshare.com and flash3dcloud.com endpoints, the liveplay/livepush streaming hosts and ipinfo.io, and **syncs its domain list at runtime** through a bootstrap URL. zmod's `/etc/hosts` block covers only some of them, so **outbound must be default-deny**, not a blocklist.
 - **Kernel:** 5.4.61 with no netfilter, inotify, loop, overlayfs, cgroups or namespaces. Policy routing is available.
 - **Gcode:** the stock screen lists `/data`.
-- **Memory:** 128 MB of RAM; the stock screen takes about 13–20 MB. Memory is the main constraint (headroom not yet measured).
-- **Stock LAN services:** 8898/8899 (Flashforge LAN protocol, FlashPrint and Orca's native connection). *Not yet confirmed on this unit.*
+- **Memory:** 110 MB usable. Under zmod it runs about 40 MB into a 128 MB swap file, with one atomic allocation failure in the kernel log. zforge therefore **creates a 128 MB swap file on `/data`** (not on rootfs) and keeps Moonraker lean: no extra components, no web UI by default, and a lower process priority (`nice`) than klippy.
+- **Stock LAN services (confirmed):** firmwareExe listens on TCP 8898 (LAN IP only) and 8899 (FlashPrint, Orca native), plus UDP 48899 and 19000 (discovery). The camera stream is TCP 8080. The firewall's `STOCK_LAN_API` and `CAMERA` toggles map to these ports (`dport` rules for TCP and UDP).
 - **zmod's approach:** it hooks in through `/etc/init.d` symlinks to `/opt/config/mod/.shell/*`, runs a chroot at `/data/.mod/.zmod`, and patches stock Klipper files. That's why a factory reset comes before zforge.
 - **Mainline Klipper (later):** requires reflashing the MCU to match.
 
