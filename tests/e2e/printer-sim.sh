@@ -109,6 +109,8 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
     -addext "subjectAltName=IP:10.9.0.1" -keyout "$R/mnt/moonraker.key" -out "$R/mnt/moonraker.cert" >/dev/null 2>&1
 cp "$R/mnt/moonraker.cert" "$W/pc/zmod.cert"
 # like stock auto_run.sh: copy the package to /data/update and unpack it there
+# the package also sits on the stick, as for a real USB install
+cp "$PKG" "$R/mnt/$(basename "$PKG")"
 mkdir -p "$R/data/update" && tar -xf "$PKG" -C "$R/data/update"
 
 if [ "$MODE" = stock ] && { [ -d "$R/opt/config/mod/.shell" ] || [ -e "$R/etc/init.d/S99moon" ]; }; then
@@ -123,6 +125,7 @@ fi
 P sh /data/update/flashforge_init.sh Adventurer5MPro 0024 >"$W/install.out" 2>&1
 check "installer succeeded"                    grep -q "installed" "$R/mnt/zforge-install.log"
 check "installer asked for reboot"             grep -q "reboot requested" "$W/install.out"
+check "package renamed on the stick (no loop)" sh -c "[ ! -e $R/mnt/$(basename "$PKG") ] && [ -f $R/mnt/$(basename "$PKG").installed ]"
 check "boot hook installed"                    cmp "$R/etc/init.d/S35zforge" "$ZFX/share/S35zforge"
 check "PATH snippet installed"                 cmp "$R/etc/profile.d/zforge.sh" "$ZFX/share/zforge-profile.sh"
 check "SSH key imported from stick"            grep -qF "$(cat "$W/pc/id.pub")" "$ZFX/etc/ssh/authorized_keys"
@@ -190,9 +193,11 @@ check "old key rejected"                       [ "$(code -k -H "X-Api-Key: $KEY"
 check "tls show prints a SHA-256 fingerprint"  sh -c "chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin $ZFH/bin/zforge tls show | grep -qi 'sha256 fingerprint'"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$R/tmp/other.key" -out "$R/tmp/other.crt" -subj /CN=x -days 1 >/dev/null 2>&1
 check "tls import rejects a mismatched key"    sh -c "! chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin $ZFH/bin/zforge tls import $ZFH/var/moonraker/certs/moonraker.cert /tmp/other.key"
+echo 'TLS_EXTRA_NAMES="printer.lan 10.20.30.40"' >>"$ZFX/etc/zforge.conf"
 P $ZFH/bin/zforge tls regen >/dev/null 2>&1
 i=0; while [ $i -lt 60 ]; do [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ] && break; sleep 3; i=$((i + 1)); done
 check "tls regen: new cert served, verifies"   [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ]
+check "tls regen: TLS_EXTRA_NAMES in the SAN"  sh -c "openssl x509 -in $CERT -noout -ext subjectAltName | grep -q 'DNS:printer.lan' && openssl x509 -in $CERT -noout -ext subjectAltName | grep -q 'IP Address:10.20.30.40'"
 check "tls regen: old cert no longer served"   [ "$(code --cacert "$W/pc/zmod.cert" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 000 ]
 cp "$CERT" "$W/pc/before-upgrade.cert"
 

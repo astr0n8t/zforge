@@ -21,3 +21,8 @@ NTP_SERVERS="pool.ntp.org"
 
 # Validity of a generated certificate, in days (825 is the most macOS accepts).
 TLS_DAYS=825
+
+# Extra names in the HTTPS certificate, besides the hostname, hostname.local
+# and the printer's IP addresses. Space-separated DNS names and/or IP addresses,
+# e.g. "printer.lan 10.0.0.5". Apply with: zforge tls regen
+TLS_EXTRA_NAMES=""

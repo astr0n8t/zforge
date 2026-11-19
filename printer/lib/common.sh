@@ -44,6 +44,7 @@ zf_defaults() {
     SWAP_MB=128
     NTP_SERVERS="pool.ntp.org"
     TLS_DAYS=825
+    TLS_EXTRA_NAMES=""
 }
 
 zf_load_config() {

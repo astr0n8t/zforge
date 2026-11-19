@@ -15,12 +15,30 @@ tls_ips() {  # IPv4 addresses on NET_IFACES
     done
 }
 
+# Subject alternative names: hostname, hostname.local, the printer's IPv4
+# addresses, plus TLS_EXTRA_NAMES (DNS names and/or IP addresses) from zforge.conf.
+tls_san() {
+    set -f   # no globbing of wildcard names like *.home.arpa (runs in a $( ) subshell)
+    san="DNS:$1,DNS:$1.local"
+    for ip in $(tls_ips); do san="$san,IP:$ip"; done
+    for n in ${TLS_EXTRA_NAMES:-}; do
+        case "$n" in
+            # only characters valid in names/addresses: nothing that could
+            # inject into openssl's -addext value
+            *[!A-Za-z0-9.:*-]*|'') zf_die "TLS_EXTRA_NAMES: invalid entry '$n'" ;;
+            *:*)       san="$san,IP:$n" ;;     # IPv6 address
+            *[!0-9.]*) san="$san,DNS:$n" ;;    # has letters, '-' or '*': a DNS name
+            *)         san="$san,IP:$n" ;;     # digits and dots: IPv4 address
+        esac
+    done
+    echo "$san"
+}
+
 tls_generate() {
     ZF_COMPONENT=tls
     zf_clock_ok || zf_die "clock not set (year $(date +%Y)); the certificate would be invalid. Wait for NTP or set the date."
     host=$(hostname 2>/dev/null || echo printer)
-    san="DNS:$host,DNS:$host.local"
-    for ip in $(tls_ips); do san="$san,IP:$ip"; done
+    san=$(tls_san "$host") || exit 1
     mkdir -p "$MR_DATA/certs" && chmod 700 "$MR_DATA/certs"
     zf_chroot openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -sha256 \
         -days "$TLS_DAYS" -subj "/CN=$host" \

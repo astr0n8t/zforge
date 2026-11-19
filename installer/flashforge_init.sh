@@ -118,6 +118,12 @@ fi
 sync
 log "zforge $(cat "$ZF/share/VERSION") installed"
 if [ "$MODE" = usb ]; then
+    # Rename the package on the stick, or the stock updater would install it
+    # again on every boot while the stick stays in.
+    for f in /mnt/Adventurer5MPro-zforge-*.tgz; do
+        [ -f "$f" ] && mv "$f" "$f.installed" && log "renamed $(basename "$f") to $(basename "$f").installed on the stick"
+    done
+    sync
     log "rebooting (remove the USB stick)"
     sync; sleep 2; reboot
     sleep 30
