@@ -251,6 +251,17 @@ Found and fixed along the way:
   - the camera stream is reachable only from `CAMERA_ALLOW`;
   - a print with the stream open shows no Klipper timing errors and no new allocation failures in `dmesg`.
 
+**Status (0.2.0):** implemented; `tests/e2e/printer-sim.sh` passes in both modes (69 checks in the stock rootfs image, 68 on the host). The IPv6 checks are skipped there: the sandbox has no IPv6 sysctls, but the printer's kernel does.
+
+Found and fixed during testing:
+- **ARP:** a protocol-less default-deny rule caught the kernel's ARP check, so the printer stopped answering ARP. The deny rules are now TCP/UDP-only, and the test flushes ARP caches before every check.
+- **Concurrent changes:** a refresh could interleave with an apply; changes now take a lock.
+
+**On-printer checks:**
+- `cat /proc/sys/net/ipv6/conf/all/disable_ipv6` prints 1 in `lan`;
+- the camera stream works during a print;
+- the touchscreen still works with its cloud features blocked.
+
 ### Phase 3: Firmware update path
 - `zforge fw check|install|backup`, Moonraker macros for them, and the re-arm USB stick.
 - **Exit criteria:** an update from version N−1 to N works via SSH and via the touchscreen OTA plus re-arm, with zforge active afterwards.
