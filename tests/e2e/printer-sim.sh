@@ -154,6 +154,10 @@ check "only publickey auth offered"            sh -c "$LAN $SSHC -o PreferredAut
 echo "G1 X10" >"$W/pc/t1.gcode"
 check "sftp upload"                            sh -c "echo 'put $W/pc/t1.gcode /data/sftp.gcode' | $LAN sftp -q -i $W/pc/id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -b - root@10.9.0.1 && [ -f $R/data/sftp.gcode ]"
 check "scp (legacy protocol) upload"           sh -c "$LAN scp -q -O -i $W/pc/id -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $W/pc/t1.gcode root@10.9.0.1:/data/scp.gcode && [ -f $R/data/scp.gcode ]"
+if [ ! -f "$R/data/scp.gcode" ]; then
+    echo "        diag: $($LAN $SSHC root@10.9.0.1 'echo PATH=$PATH; command -v scp; ls -la $(command -v scp)' 2>&1 | tr '\n' ' ')"
+    echo "        diag: $($LAN scp -O -i "$W/pc/id" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$W/pc/t1.gcode" root@10.9.0.1:/data/scp.gcode 2>&1 | tr '\n' ' ')"
+fi
 check "zforge on PATH in a login shell"        sh -c "$LAN $SSHC root@10.9.0.1 'sh -l -c \"command -v zforge\"' | grep -q /data/.zforge/bin/zforge"
 check "zforge status over ssh"                 sh -c "$LAN $SSHC root@10.9.0.1 $ZFH/bin/zforge status | grep -q 'moonraker *running'"
 
