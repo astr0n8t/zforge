@@ -282,6 +282,46 @@ set_conf CAMERA on; set_conf FIREWALL_PROFILE lan; apply_confirm
 echo "== camera"
 check "camera service waits for a device"      grep -q "waiting for /dev/video0" "$ZFX/var/log/camera.log"
 
+if [ "$MODE" = stock ]; then
+echo "== stock firmware updates (Phase 3; synthetic packages)"
+FAKE="$TOP/tests/e2e/fake-fwpkg.sh"
+mkdir -p "$R/data/pkgs"
+"$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.9.tgz" 9.9.9
+"$FAKE" "$R/data/pkgs/Adventurer5MPro-1.0.0.tgz" 1.0.0
+"$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.8-Factory.tgz" 9.9.8 factory
+"$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.7.tgz" 9.9.7 corrupt
+"$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.6.tgz" 9.9.6 wrongmachine
+fwi() { P $ZFH/bin/zforge fw install "$@" --no-reboot >"$W/fw.out" 2>&1; }
+sw_before=$(ls "$R/opt/PROGRAM/software")
+cp "$R/etc/wpa_supplicant.conf" "$W/wpa.before"
+check "fw: corrupted package refused"          notc fwi /data/pkgs/Adventurer5MPro-9.9.7.tgz
+check "fw:   ...with an md5 message"           grep -q "md5sum.list" "$W/fw.out"
+check "fw: downgrade refused"                  notc fwi /data/pkgs/Adventurer5MPro-1.0.0.tgz
+check "fw: Factory package refused"            notc fwi /data/pkgs/Adventurer5MPro-9.9.8-Factory.tgz
+check "fw: wrong machine refused"              notc fwi /data/pkgs/Adventurer5MPro-9.9.6.tgz
+check "fw: nothing changed by refusals"        [ "$(ls "$R/opt/PROGRAM/software")" = "$sw_before" ]
+check "fw: install a good package"             fwi /data/pkgs/Adventurer5MPro-9.9.9.tgz
+check "fw:   new version installed"            [ "$(ls "$R/opt/PROGRAM/software")" = 9.9.9 ]
+check "fw:   Wi-Fi config restored"            cmp "$W/wpa.before" "$R/etc/wpa_supplicant.conf"
+check "fw:   zforge hook still installed"      cmp "$R/etc/init.d/S35zforge" "$ZFX/share/S35zforge"
+check "fw:   history logged"                   grep -q "Adventurer5MPro-9.9.9.tgz.*software=9.9.9" "$ZFX/var/fw-history.log"
+check "fw:   staging dir cleaned up"           [ ! -e "$R/data/update" ]
+check "fw: status shows the version"           sh -c "chroot $R /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge fw status | grep -q 'software=9.9.9'"
+# install from a URL on the "internet": the firewall (lan) must open just that host, and only for the download
+"$FAKE" "$W/Adventurer5MPro-9.9.10.tgz" 9.9.10
+$LAN sh -c "cd $W && exec python3 -m http.server --bind 203.0.113.6 8000" >/dev/null 2>&1 &
+sleep 2
+check "fw: download host blocked beforehand"   notc reach nc -w2 203.0.113.6 8000
+check "fw: install from URL"                   fwi http://203.0.113.6:8000/Adventurer5MPro-9.9.10.tgz
+check "fw:   new version installed"            [ "$(ls "$R/opt/PROGRAM/software")" = 9.9.10 ]
+check "fw:   temporary allow removed"          sh -c "! ip rule | grep -q '^198:'"
+check "fw:   host blocked again"               notc reach nc -w2 203.0.113.6 8000
+# OTA window
+P $ZFH/bin/zforge fw allow-ota 15s >/dev/null
+check "fw: allow-ota opens the internet"       out_to 203.0.113.5
+check "fw: allow-ota closes by itself"         wait_for notc out_to 203.0.113.5
+fi
+
 echo "== shutdown and disable"
 P /etc/init.d/S35zforge stop
 pgrep -a -f '[m]oonraker.py|[d]ropbear' | sed 's/^/        still running: /'

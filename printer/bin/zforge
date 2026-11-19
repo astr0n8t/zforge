@@ -12,6 +12,7 @@ ZF_LIBDIR=${ZF_LIBDIR:-$(cd "$(dirname "$ZF_SELF")/../lib" && pwd)}
 . "$ZF_LIBDIR/firewall.sh"
 . "$ZF_LIBDIR/moonraker.sh"
 . "$ZF_LIBDIR/tls.sh"
+. "$ZF_LIBDIR/fwupdate.sh"
 
 zf_load_config
 mkdir -p "$ZF_LOG" "$ZF_RUN" 2>/dev/null
@@ -31,6 +32,12 @@ zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null || echo "?")
   zforge firewall apply [SECONDS]  apply zforge.conf's firewall settings; reverts unless
                                    confirmed within SECONDS (default FW_CONFIRM_SECONDS=120)
   zforge firewall confirm          keep the applied change
+  zforge fw status                 installed stock versions, update history, OTA window
+  zforge fw install PKG|URL [--force] [--no-reboot]
+                                   install a stock update package (Adventurer5MPro-*.tgz):
+                                   checks it, keeps your Wi-Fi config, reboots
+  zforge fw allow-ota [MINUTES]    open outbound internet for the touchscreen's own
+                                   update check (default 30 min); fw close-ota closes it
   zforge shell                     enter the zforge chroot (Alpine)
   zforge enable|disable            run / skip zforge at next boot
   zforge version
@@ -145,6 +152,15 @@ svc_args() {
 case "${1:-help}" in
     __run)     shift; svc_exec "$1" ;;      # internal: used by the supervisor
     __fw_rollback) shift; fw_cmd_rollback_timer "$1" ;;   # internal: firewall apply's timer
+    __ota_close) shift; fw_cmd_ota_timer "$1" ;;          # internal: allow-ota's timer
+    fw)        shift
+               case "${1:-status}" in
+                   status)    fw_cmd_status ;;
+                   install)   shift; fw_cmd_install "$@" ;;
+                   allow-ota) fw_cmd_allow_ota "${2:-}" ;;
+                   close-ota) fw_cmd_close_ota ;;
+                   *) usage; exit 2 ;;
+               esac ;;
     boot)      cmd_boot ;;
     shutdown)  cmd_shutdown ;;
     status)    cmd_status ;;
