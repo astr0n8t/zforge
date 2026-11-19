@@ -26,3 +26,33 @@ TLS_DAYS=825
 # and the printer's IP addresses. Space-separated DNS names and/or IP addresses,
 # e.g. "printer.lan 10.0.0.5". Apply with: zforge tls regen
 TLS_EXTRA_NAMES=""
+
+# ---- Firewall (policy routing; the stock kernel has no iptables) ----
+# Apply changes with `zforge firewall apply`, then `zforge firewall confirm`
+# within FW_CONFIRM_SECONDS, or they revert (also at the next reboot).
+#   open    stock behaviour (only the blocks below that are always on)
+#   lan     inbound: only the services below, from LAN_CIDRS; outbound: the
+#           LAN plus DNS and NTP servers. No internet for the stock firmware.
+#   strict  like lan, plus outbound to ALLOW_OUT
+FIREWALL_PROFILE=lan
+# What counts as "the LAN" (sources allowed in, destinations allowed out).
+LAN_CIDRS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+# strict only: extra outbound destinations (host names, IPs or CIDRs).
+ALLOW_OUT=""
+# Limit services to some sources (IPs/CIDRs); empty = LAN_CIDRS.
+SSH_ALLOW=""
+MOONRAKER_ALLOW=""
+# Flashforge LAN API (TCP 8898/8899, UDP 48899/19000): FlashPrint, Orca's
+# native Flashforge connection, discovery. Blocked in every profile when off.
+STOCK_LAN_API=off
+FW_CONFIRM_SECONDS=120
+
+# ---- Camera (stock mjpg-streamer; plain HTTP, no login, by design) ----
+# http://PRINTER:8080/?action=stream  Keep the touchscreen's camera setting off.
+CAMERA=on
+CAMERA_DEVICE=/dev/video0
+CAMERA_RES=1280x720
+CAMERA_FPS=15
+CAMERA_PORT=8080
+# Who may watch (IPs/CIDRs); empty = LAN_CIDRS. Port blocked when CAMERA=off.
+CAMERA_ALLOW=""

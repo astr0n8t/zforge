@@ -249,7 +249,7 @@ Found and fixed along the way:
 - **Exit criteria:**
   - with `strict`, a capture on the LAN gateway shows no traffic to vendor hosts over 24 h, and Orca, SSH and NTP still work;
   - the camera stream is reachable only from `CAMERA_ALLOW`;
-  - the streamer's CPU and RSS during a print are recorded in `docs/device-notes.md`.
+  - a print with the stream open shows no Klipper timing errors and no new allocation failures in `dmesg`.
 
 ### Phase 3: Firmware update path
 - `zforge fw check|install|backup`, Moonraker macros for them, and the re-arm USB stick.

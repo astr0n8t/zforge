@@ -45,6 +45,21 @@ zf_defaults() {
     NTP_SERVERS="pool.ntp.org"
     TLS_DAYS=825
     TLS_EXTRA_NAMES=""
+    # firewall (Phase 2)
+    FIREWALL_PROFILE=lan
+    LAN_CIDRS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
+    ALLOW_OUT=""
+    SSH_ALLOW=""
+    MOONRAKER_ALLOW=""
+    STOCK_LAN_API=off
+    FW_CONFIRM_SECONDS=120
+    # camera (Phase 2)
+    CAMERA=on
+    CAMERA_DEVICE=/dev/video0
+    CAMERA_RES=1280x720
+    CAMERA_FPS=15
+    CAMERA_PORT=8080
+    CAMERA_ALLOW=""
 }
 
 zf_load_config() {

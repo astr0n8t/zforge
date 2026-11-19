@@ -95,6 +95,34 @@ svc_exec() {
                 nice -n 10 /opt/moonraker-env/bin/python /opt/moonraker/moonraker/moonraker.py \
                 -d "$MR_DATA_REL" -c "$MR_DATA_REL/config/moonraker.conf" -l "$MR_DATA_REL/logs/moonraker.log"
             ;;
+        camera)
+            # The stock touchscreen app runs its own mjpg_streamer (with
+            # output_file.so) when its camera setting is on; a UVC device can
+            # only be opened once, so wait rather than fight over it.
+            said=""
+            while grep -q -s '[o]utput_file.so' /proc/[0-9]*/cmdline 2>/dev/null; do   # [o]: don't match this grep
+                [ -n "$said" ] || { echo "the stock camera stream is on (touchscreen setting); waiting for it to stop"; said=1; }
+                sleep 30
+            done
+            said=""
+            while [ ! -e "$CAMERA_DEVICE" ]; do
+                [ -n "$said" ] || { echo "waiting for $CAMERA_DEVICE (no camera connected?)"; said=1; }
+                sleep 10
+            done
+            # Stock mjpg-streamer, the camera's own MJPEG passed through (no
+            # re-encoding), no snapshots to disk, no remote commands.
+            LD_LIBRARY_PATH=/opt/mjpg-streamer/lib
+            export LD_LIBRARY_PATH
+            exec nice -n 5 /opt/mjpg-streamer/bin/mjpg_streamer \
+                -i "/opt/mjpg-streamer/lib/input_uvc.so -d $CAMERA_DEVICE -r $CAMERA_RES -f $CAMERA_FPS" \
+                -o "/opt/mjpg-streamer/lib/output_http.so -p $CAMERA_PORT -n -w /opt/mjpg-streamer/www"
+            ;;
+        fwrefresh)
+            # re-resolve firewall host names (DNS, NTP, ALLOW_OUT) once the
+            # network is up, then every 30 minutes
+            sleep 60
+            while :; do "$ZF_SELF" firewall refresh; sleep 1800; done
+            ;;
         *) echo "unknown service $1"; exit 2 ;;
     esac
 }
