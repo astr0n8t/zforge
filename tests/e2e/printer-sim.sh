@@ -151,9 +151,18 @@ KEY=$(P $ZFH/bin/zforge apikey show 2>/dev/null)
 code() { $LAN curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
 
 echo "== SSH (from the LAN)"
+# forget the printer's MAC, so ARP has to work through the firewall
+$LAN ip neigh flush all; ip neigh flush all
+check "ARP works through the firewall"         sh -c "$LAN ping -c 1 -W 3 10.9.0.1"
 i=0; while [ $i -lt 40 ]; do $LAN $SSHC root@10.9.0.1 true 2>/dev/null && break; sleep 3; i=$((i + 1)); done
 out=$($LAN $SSHC root@10.9.0.1 echo hello 2>&1)
 [ "$out" = hello ] || echo "        diag: ssh output: $(echo "$out" | tr '\n' ' ')"
+if [ "$out" != hello ]; then
+    echo "        diag: ip rule:";  ip rule | sed 's/^/          /'
+    echo "        diag: ip route:"; ip route | sed 's/^/          /'
+    echo "        diag: ip -4 addr:"; ip -4 -o addr | sed 's/^/          /'
+    echo "        diag: lan side:"; $LAN ip -4 -o addr | sed 's/^/          /'
+fi
 check "/data made non-world-writable for dropbear" sh -c "[ -z \"\$(find $R/data -maxdepth 0 -perm -o+w)\" ]"
 check "ssh root with key works"                sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
 check "only publickey auth offered"            sh -c "$LAN $SSHC -o PreferredAuthentications=password -o BatchMode=yes root@10.9.0.1 true 2>&1 | grep -q 'Permission denied (publickey)'"
@@ -216,7 +225,7 @@ check "after upgrade: ssh works"               sh -c "$LAN $SSHC root@10.9.0.1 e
 echo "== firewall (Phase 2; default profile: lan)"
 notc() { ! "$@"; }
 reach() { out=$(timeout 5 "$@" </dev/null 2>/dev/null); [ -n "$out" ]; }
-lan_to() { reach $LAN nc -w2 10.9.0.1 "$1"; }        # PC -> printer port
+lan_to() { $LAN ip neigh flush all; reach $LAN nc -w2 10.9.0.1 "$1"; }   # PC -> printer port (fresh ARP each time)
 out_to() { reach nc -w2 "$1" 80; }                     # printer -> host:80
 set_conf() { sed -i "/^$1=/d" "$ZFX/etc/zforge.conf"; echo "$1=\"$2\"" >>"$ZFX/etc/zforge.conf"; }
 apply_confirm() { P $ZFH/bin/zforge firewall apply 600 >/dev/null && P $ZFH/bin/zforge firewall confirm >/dev/null; }

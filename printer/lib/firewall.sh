@@ -6,7 +6,8 @@
 #        the stock LAN API and the camera port when switched off
 #   20   inbound allows (lan/strict): listed ports from listed sources,
 #        plus replies (ephemeral ports), DHCP, NTP replies, ICMP
-#   30   inbound default deny (lan/strict): blackhole everything else
+#   30   inbound default deny (lan/strict): blackhole all other TCP/UDP
+#        (never protocol-less: that would break ARP, see fw_plan)
 #   100  lookup local (moved from pref 0 so the rules above can win)
 #   200  outbound allows (lan/strict): LAN, multicast/broadcast, DNS and NTP
 #        servers, ALLOW_OUT (strict)
@@ -128,8 +129,11 @@ fw_plan() {
         echo "pref $FW_P_ALLOW iif $i ipproto udp dport 68 lookup local"    # DHCP client
         echo "pref $FW_P_ALLOW iif $i ipproto udp dport 123 lookup local"   # NTP replies
         echo "pref $FW_P_ALLOW iif $i ipproto icmp lookup local"
-        # 30: everything else inbound is dropped
-        echo "pref $FW_P_INDENY iif $i blackhole"
+        # 30: all other TCP/UDP inbound is dropped. Only TCP/UDP: a rule
+        # without ipproto would also catch the kernel's ARP check (a route
+        # lookup with protocol 0), and the printer would stop answering ARP.
+        echo "pref $FW_P_INDENY iif $i ipproto tcp blackhole"
+        echo "pref $FW_P_INDENY iif $i ipproto udp blackhole"
     done
 
     # 200: outbound allows
