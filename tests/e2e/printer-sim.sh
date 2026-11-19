@@ -41,7 +41,12 @@ if [ -n "${STOCK_ROOT:-}" ]; then
     mount -t overlay overlay -o "lowerdir=$(readlink -f "$STOCK_ROOT"),upperdir=$W/ovl/u,workdir=$W/ovl/w" "$R"
     mount -t proc proc "$R/proc"
     mount -t sysfs sysfs "$R/sys"
-    mount --rbind /dev "$R/dev"
+    # a private /dev with just the nodes needed: vendor installers write to
+    # /dev/fb0 etc., which must not land in the host's /dev
+    mount -t tmpfs -o mode=755 tmpfs "$R/dev"
+    for n in null zero full random urandom tty; do : >"$R/dev/$n"; mount --bind "/dev/$n" "$R/dev/$n"; done
+    mkdir -p "$R/dev/pts" "$R/dev/shm"
+    mount -t devpts -o newinstance,ptmxmode=0666 devpts "$R/dev/pts" && ln -sf pts/ptmx "$R/dev/ptmx"
     for d in tmp run mnt; do mount -t tmpfs tmpfs "$R/$d"; done
     mkdir -p "$R/data"; mount -t tmpfs -o size=1500m tmpfs "$R/data"
     SHIM=$R/zf-shim
@@ -292,6 +297,18 @@ mkdir -p "$R/data/pkgs"
 "$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.7.tgz" 9.9.7 corrupt
 "$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.6.tgz" 9.9.6 wrongmachine
 fwi() { P $ZFH/bin/zforge fw install "$@" --no-reboot >"$W/fw.out" 2>&1; }
+if [ -n "${FW_PKG_REAL:-}" ]; then
+    # a real Flashforge package (not in the repo), e.g. FW_PKG_REAL=Adventurer5MPro-5.2.0-....tgz
+    cp "$FW_PKG_REAL" "$R/data/pkgs/Adventurer5MPro-real.tgz"
+    cp "$R/etc/wpa_supplicant.conf" "$W/wpa.real.before"
+    check "fw (real package): installs"        fwi /data/pkgs/Adventurer5MPro-real.tgz
+    echo "        info: $(chroot "$R" /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge fw status | head -n 1)"
+    check "fw (real package): Wi-Fi config kept" cmp "$W/wpa.real.before" "$R/etc/wpa_supplicant.conf"
+    check "fw (real package): hook still there" cmp "$R/etc/init.d/S35zforge" "$ZFX/share/S35zforge"
+    check "fw (real package): rcS runs S??*"   grep -q 'for i in /etc/init.d/S??\*' "$R/etc/init.d/rcS"
+    check "fw (real package): vendor exit 0"   grep -q "rc=0 Adventurer5MPro-real.tgz" "$ZFX/var/fw-history.log"
+    cp "$ZFX/var/log/fw-install.log" "$W/fw-install-real.log" 2>/dev/null
+fi
 sw_before=$(ls "$R/opt/PROGRAM/software")
 cp "$R/etc/wpa_supplicant.conf" "$W/wpa.before"
 check "fw: corrupted package refused"          notc fwi /data/pkgs/Adventurer5MPro-9.9.7.tgz
