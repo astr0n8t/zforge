@@ -204,7 +204,14 @@ Stock Orca: Printer → Connection → host type "Octo/Klipper", host **`https:/
 - Migration from zmod: **before** removing zmod, copy off `/data/.mod/.zmod/root/printer_data/certs/moonraker.{cert,key}`, the dropbear `authorized_keys`, and `mod_data/user.moonraker.conf`. `zforge tls import` and the installer reuse them.
 - **Exit criteria:** you can SSH in as root with a key, Orca uploads and prints over `https://…:7130` using the API key, requests without the key get `401`, `:7125` and any other Moonraker port are unreachable from the LAN, the stock screen works normally, and the printer survives reboots.
 
-**Status:** implemented and passing all 41 checks of `tests/e2e/printer-sim.sh` in simulation:
+**Status (0.1.1):** passing `tests/e2e/printer-sim.sh` in both modes: 44 checks on the host userland, and 45 inside the printer's stock rootfs image (`STOCK_ROOT`), which also checks that the installer refuses while zmod is present.
+
+The first real install (0.1.0) failed because the stock BusyBox 1.29.3 `tar` has no `-z`. The stock-rootfs test mode was added to catch exactly this class of bug. That mode also found:
+- legacy `scp`, and `zforge` in non-login SSH commands, needed dropbear's `DEFAULT_ROOT_PATH`;
+- a missing `eth0` could leak error text into the certificate's SAN list;
+- login shells needed `/etc/profile.d/zforge.sh`.
+
+Covered, among others:
 - USB install with key, certificate and user-config import from the stick;
 - the boot hook and base firewall;
 - key-only SSH, plus sftp and scp;

@@ -2,7 +2,11 @@
 
 zforge installs from a USB stick through the stock firmware's own updater, the same mechanism official updates use. Later upgrades can also go over SSH.
 
-**What it adds to the stock system:** exactly one file, `/etc/init.d/S35zforge`. Everything else lives in `/data/.zforge`. Stock firmware updates leave both alone (see [stock/update-package.md](stock/update-package.md)).
+**What it adds to the stock system:** two small files.
+- `/etc/init.d/S35zforge` is the boot hook.
+- `/etc/profile.d/zforge.sh` puts `zforge` on the PATH of login shells.
+
+Everything else lives in `/data/.zforge`. Stock firmware updates leave all of it alone (see [stock/update-package.md](stock/update-package.md)), and the boot hook reinstalls the PATH snippet if it's ever missing.
 
 ## Before you start: migrating from zmod
 
@@ -38,7 +42,7 @@ Use a FAT32 (MBR) USB stick. At its root, put:
 
 Then:
 1. Power the printer off, insert the stick, and power it on.
-2. The stock updater runs the zforge installer, which unpacks about 100 MB onto `/data` and reboots the printer. Allow a few minutes.
+2. The stock updater runs the zforge installer, which unpacks about 170 MB onto `/data` and reboots the printer. Allow a few minutes.
 3. Remove the stick and read **`zforge-install.log`** on it. It should end with `zforge … installed`. If the installer refused or failed, the log says why, and the printer boots stock firmware as usual.
 
 ## First login

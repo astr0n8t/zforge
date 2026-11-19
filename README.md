@@ -12,8 +12,9 @@ See [PLAN.md](PLAN.md) for the design and phases.
 ## Status
 
 - **Phase 0 (discovery): done.** See [`docs/device-notes.md`](docs/device-notes.md) and [`docs/stock/`](docs/stock/).
-- **Phase 1 (SSH, HTTPS Moonraker on stock Klipper): built and tested in simulation.** Not yet run on a printer.
+- **Phase 1 (SSH, HTTPS Moonraker on stock Klipper): built and tested in simulation.** Not yet run successfully on a printer.
   - The simulation is an x86 host running the real armv7 binaries under qemu.
+  - With `STOCK_ROOT=<mounted stock rootfs backup>`, the printer side runs inside the printer's own BusyBox/bash userland.
   - On-printer checks still to do: see "Phase 1: on-printer checklist" in [`PLAN.md`](PLAN.md).
 
 ## Layout
@@ -33,5 +34,5 @@ See [PLAN.md](PLAN.md) for the design and phases.
 ```sh
 sudo build/build-rootfs.sh        # needs qemu-user-static + binfmt on x86 (about 20 min)
 build/package.sh                  # dist/Adventurer5MPro-zforge-<ver>.tgz
-sudo unshare -m -n -p -f --mount-proc sh tests/e2e/printer-sim.sh dist/Adventurer5MPro-zforge-*.tgz
+sudo [STOCK_ROOT=/mnt/stock-rootfs] unshare -m -n -p -f --mount-proc sh tests/e2e/printer-sim.sh dist/Adventurer5MPro-zforge-*.tgz
 ```
