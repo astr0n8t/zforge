@@ -31,6 +31,7 @@ fail() { echo "  FAIL  $*"; FAILS=$((FAILS + 1)); }
 check() { d=$1; shift; if "$@" >/dev/null 2>&1; then pass "$d"; else fail "$d"; fi; }
 
 rm -rf "$W"; mkdir -p "$W/pc" "$W/shim"
+mount -t tmpfs tmpfs /run      # private /run (ip netns state) in both modes
 
 # ------------------------------------------------------------------ simulated printer
 if [ -n "${STOCK_ROOT:-}" ]; then
@@ -53,7 +54,7 @@ else
     mount -t tmpfs -o size=1500m tmpfs /data
     mount --bind "$W/initd" /etc/init.d
     mount --bind "$W/optconfig" /opt/config
-    for d in /mnt /run /tmp; do mount -t tmpfs tmpfs "$d"; done
+    for d in /mnt /tmp; do mount -t tmpfs tmpfs "$d"; done
     printf '[virtual_sdcard]\npath: /data/\n' >/opt/config/printer.cfg
     SHIM=$W/shim
     printf '#!/bin/sh\n[ "${1:-}" = -m ] && { echo armv7l; exit 0; }\nexec /bin/uname "$@"\n' >"$SHIM/uname"
