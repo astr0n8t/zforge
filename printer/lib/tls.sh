@@ -9,7 +9,9 @@ tls_have() { [ -s "$ZF_SYSROOT$TLS_CERT_REL" ] && [ -s "$ZF_SYSROOT$TLS_KEY_REL"
 
 tls_ips() {  # IPv4 addresses on NET_IFACES
     for i in $NET_IFACES; do
-        zf_ip -4 -o addr show dev "$i" 2>/dev/null | awk '{sub("/.*", "", $4); print $4}'
+        # only real "inet A.B.C.D/NN" entries (ignore any error text)
+        zf_ip -4 -o addr show dev "$i" 2>/dev/null |
+            awk '$3 == "inet" && $4 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\// {sub("/.*", "", $4); print $4}'
     done
 }
 

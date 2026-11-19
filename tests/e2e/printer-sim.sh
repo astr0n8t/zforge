@@ -69,7 +69,7 @@ cat >"$SHIM/ip" <<'EOF'
 d=/run/iprelay; mkdir -p "$d"; id=$$
 echo "$*" >"$d/$id.tmp" && mv "$d/$id.tmp" "$d/$id.req"
 while [ ! -f "$d/$id.rc" ]; do sleep 0.05; done
-cat "$d/$id.out"; rc=$(cat "$d/$id.rc"); rm -f "$d/$id.out" "$d/$id.rc"; exit "$rc"
+cat "$d/$id.out"; cat "$d/$id.err" >&2; rc=$(cat "$d/$id.rc"); rm -f "$d/$id.out" "$d/$id.err" "$d/$id.rc"; exit "$rc"
 EOF
 chmod +x "$SHIM/"*
 mkdir -p "$R/run/iprelay"
@@ -79,7 +79,7 @@ mkdir -p "$R/run/iprelay"
             [ -f "$f" ] || continue
             b=${f%.req}
             # shellcheck disable=SC2046
-            ip $(cat "$f") >"$b.out" 2>&1; echo $? >"$b.rc.tmp"; rm -f "$f"; mv "$b.rc.tmp" "$b.rc"
+            ip $(cat "$f") >"$b.out" 2>"$b.err"; echo $? >"$b.rc.tmp"; rm -f "$f"; mv "$b.rc.tmp" "$b.rc"
         done
         sleep 0.05
     done
