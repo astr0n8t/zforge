@@ -270,6 +270,14 @@ Found and fixed during testing:
   - **`fw backup` stays on the PC side:** that's `tools/probe/run-backup.sh`.
 - **Exit criteria:** an update from version N-1 to N works via SSH, and via the touchscreen with an OTA window, with zforge active afterwards. In simulation this is covered with synthetic vendor-style packages: good, downgrade, Factory, corrupted, wrong machine, plus a URL install through the firewall and the OTA window.
 
+**Status (0.3.0):** implemented. `tests/e2e/printer-sim.sh` passes in stock mode (94 checks) and host mode (68). That includes the real Flashforge 5.2.0 package installed over the stock 3.2.3 image with `FW_PKG_REAL`:
+- the vendor installer exited 0, leaving software 5.2.0 and library 2.5.0;
+- the Wi-Fi config and the zforge hook were kept, and the new `rcS` still runs `S??*`.
+
+The 5.2.0 touchscreen app starts Klipper the same way as 3.2.3 (`/opt/klipper/start.sh`, `/tmp/uds`), and packages don't touch `/opt/klipper`, so Moonraker is unaffected by the update.
+
+**On-printer check:** run `zforge fw install` with the 5.2.0 package; afterwards, the touchscreen, Klipper and Moonraker work and `zforge status` is clean.
+
 ### Phase 4: Mainline Klipper (opt-in)
 - Mainline Klipper in the chroot, the ported Flashforge extras, MCU build and flash, and a tested path back to stock.
 - **Exit criteria:** with mainline Klipper running, the stock screen can print, level and run the load-cell probe, and switching back to stock fully restores the stock MCU firmware.
