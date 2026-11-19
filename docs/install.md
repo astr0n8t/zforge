@@ -80,6 +80,10 @@ Change any of this in `zforge.conf`, then run `zforge firewall apply` and `zforg
 
 The camera stream is at `http://PRINTER_IP:8080/?action=stream`. Keep the touchscreen's camera setting off.
 
+## Stock firmware updates
+
+See [firmware-updates.md](firmware-updates.md). In short: `zforge fw install <package.tgz|URL>` over SSH, or `zforge fw allow-ota` and then the touchscreen.
+
 ## Upgrading
 
 - **Over SSH:** `tools/install/run-install.sh root@PRINTER dist/Adventurer5MPro-zforge-<ver>.tgz`. The printer reboots.

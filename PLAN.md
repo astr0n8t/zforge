@@ -263,8 +263,12 @@ Found and fixed during testing:
 - the touchscreen still works with its cloud features blocked.
 
 ### Phase 3: Firmware update path
-- `zforge fw check|install|backup`, Moonraker macros for them, and the re-arm USB stick.
-- **Exit criteria:** an update from version N−1 to N works via SSH and via the touchscreen OTA plus re-arm, with zforge active afterwards.
+- `zforge fw install PKG|URL [--force] [--no-reboot]`, `zforge fw allow-ota [MIN]` / `close-ota`, `zforge fw status`. User guide: [`docs/firmware-updates.md`](docs/firmware-updates.md).
+- **Changed from the original plan:**
+  - **No Moonraker commands:** running zforge from Moonraker would need Klipper's `gcode_shell_command` extra, which means modifying stock Klipper. The `fw` commands are SSH-only.
+  - **`fw check` became `fw allow-ota`:** the stock update API isn't documented, so zforge doesn't query it. It opens a time-limited window for the touchscreen's own check instead.
+  - **`fw backup` stays on the PC side:** that's `tools/probe/run-backup.sh`.
+- **Exit criteria:** an update from version N-1 to N works via SSH, and via the touchscreen with an OTA window, with zforge active afterwards. In simulation this is covered with synthetic vendor-style packages: good, downgrade, Factory, corrupted, wrong machine, plus a URL install through the firewall and the OTA window.
 
 ### Phase 4: Mainline Klipper (opt-in)
 - Mainline Klipper in the chroot, the ported Flashforge extras, MCU build and flash, and a tested path back to stock.
