@@ -69,6 +69,17 @@ zforge tls show        # certificate details and its SHA-256 fingerprint
 
 Plain HTTP on port 7125 exists only on the printer itself; the firewall blocks it from the network. Requests without the API key get `401`.
 
+## Firewall and camera
+
+From 0.2.0 the firewall defaults to the **`lan` profile**:
+- SSH, Moonraker HTTPS and the camera are reachable from private-network addresses only.
+- The stock firmware gets no internet: no cloud, no touchscreen update checks.
+- The Flashforge LAN API (FlashPrint, Orca's native Flashforge connection) is off.
+
+Change any of this in `zforge.conf`, then run `zforge firewall apply` and `zforge firewall confirm`. The details and the lockout rescue are in [firewall.md](firewall.md).
+
+The camera stream is at `http://PRINTER_IP:8080/?action=stream`. Keep the touchscreen's camera setting off.
+
 ## Upgrading
 
 - **Over SSH:** `tools/install/run-install.sh root@PRINTER dist/Adventurer5MPro-zforge-<ver>.tgz`. The printer reboots.
@@ -77,5 +88,6 @@ Plain HTTP on port 7125 exists only on the printer itself; the firewall blocks i
 ## Rescue sticks
 
 Each rescue stick holds just the one `flashforge_init.sh` from `dist/rescue-*/`:
+- **`rescue-firewall-open`:** sets the firewall to `open` and reboots. Use it if a firewall setting locked you out.
 - **`rescue-disable`:** zforge is skipped at boot, and stock firmware runs untouched. Re-run the installer stick to enable it again.
 - **`rescue-uninstall`:** removes the hook and `/data/.zforge`.
