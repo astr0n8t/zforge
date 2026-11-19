@@ -157,10 +157,29 @@ fw_local_rule() {  # local table at pref 100 (add first, then delete pref 0: no 
 
 fw_ipv6() {
     v=0; [ "$FIREWALL_PROFILE" = open ] || v=1
-    for f in all default; do echo "$v" >"$ZF_SYSROOT/proc/sys/net/ipv6/conf/$f/disable_ipv6" 2>/dev/null; done
-    for i in $NET_IFACES; do echo "$v" >"$ZF_SYSROOT/proc/sys/net/ipv6/conf/$i/disable_ipv6" 2>/dev/null; done
+    for f in all default $NET_IFACES; do
+        c="$ZF_SYSROOT/proc/sys/net/ipv6/conf/$f/disable_ipv6"
+        [ -w "$c" ] && echo "$v" >"$c"   # interfaces that don't exist yet get "default"
+    done
     return 0
 }
+
+# One firewall change at a time (apply, refresh and the rollback timer can
+# otherwise interleave their flush/add sequences). mkdir is atomic.
+FW_LOCK=$ZF_RUN/fw.lock
+fw_lock() {
+    i=0
+    while ! mkdir "$FW_LOCK" 2>/dev/null; do
+        owner=$(cat "$FW_LOCK/pid" 2>/dev/null)
+        if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then   # stale lock
+            rm -f "$FW_LOCK/pid"; rmdir "$FW_LOCK" 2>/dev/null; continue
+        fi
+        i=$((i + 1)); [ $i -le 120 ] || { zf_log "firewall: lock held by pid ${owner:-?} for 2 min, giving up"; return 1; }
+        sleep 1
+    done
+    echo "$$" >"$FW_LOCK/pid"
+}
+fw_unlock() { rm -f "$FW_LOCK/pid"; rmdir "$FW_LOCK" 2>/dev/null; return 0; }
 
 # Install a plan file: replace zforge's rules (prefs 10-290) with its lines.
 fw_install() {
@@ -183,10 +202,12 @@ fw_install() {
 # resulting rules are unchanged, unless FORCE=1.
 fw_apply_conf() {
     (
+        fw_lock || exit 1
+        trap fw_unlock EXIT
         zf_defaults
         # shellcheck disable=SC1090
         . "$1"
-        plan="$ZF_RUN/firewall.plan.new"
+        plan="$ZF_RUN/firewall.plan.$$"
         fw_plan >"$plan" || exit 1
         if [ "${FORCE:-0}" != 1 ] && cmp -s "$plan" "$FW_PLAN" && fw_has "^$FW_P_LOCAL:.*lookup local"; then
             rm -f "$plan"; exit 0

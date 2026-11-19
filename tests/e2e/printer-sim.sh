@@ -234,7 +234,9 @@ check "lan: stock API 8899 blocked (default)"  notc lan_to 8899
 check "lan: any other port blocked"            notc lan_to 5000
 check "lan: printer -> LAN allowed"            reach nc -w2 10.9.0.2 80
 check "lan: printer -> internet refused"       notc out_to 203.0.113.5
+if [ -e /proc/sys/net/ipv6/conf/all/disable_ipv6 ]; then
 check "lan: IPv6 turned off"                   [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = 1 ]
+else echo "  SKIP  lan: IPv6 turned off (no IPv6 sysctls in this environment)"; fi
 check "lan: fwrefresh service running"         pgrep -f '[_]_run fwrefresh'
 
 set_conf FIREWALL_PROFILE strict; set_conf ALLOW_OUT 203.0.113.6; set_conf STOCK_LAN_API on
@@ -244,7 +246,10 @@ check "strict: other internet refused"         notc out_to 203.0.113.5
 check "STOCK_LAN_API=on: 8899 reachable"       lan_to 8899
 
 set_conf SSH_ALLOW 10.9.0.99/32                # locks this PC out of SSH
+P $ZFH/bin/zforge firewall refresh >/dev/null 2>&1 &   # concurrent refresh (the lock must serialize)
 P $ZFH/bin/zforge firewall apply 15 >/dev/null
+wait $!
+check "no rule errors under concurrent apply"  sh -c "! grep -q 'FAILED' $ZFX/var/log/zforge.log"
 check "apply: lockout takes effect"            notc lan_to 22
 check "status shows the pending change"        sh -c "chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge firewall status | grep -q PENDING"
 check "not confirmed: reverted, SSH back"      wait_for lan_to 22
@@ -258,7 +263,9 @@ set_conf FIREWALL_PROFILE open; apply_confirm
 check "open: other ports reachable"            lan_to 5000
 check "open: internet reachable"               out_to 203.0.113.5
 check "open: 7125 still blocked"               [ "$(code http://10.9.0.1:7125/server/info)" = 000 ]
+if [ -e /proc/sys/net/ipv6/conf/all/disable_ipv6 ]; then
 check "open: IPv6 back on"                     [ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = 0 ]
+else echo "  SKIP  open: IPv6 back on (no IPv6 sysctls in this environment)"; fi
 set_conf CAMERA off; apply_confirm
 check "CAMERA=off: camera port blocked"        notc lan_to 8080
 set_conf CAMERA on; set_conf FIREWALL_PROFILE lan; apply_confirm
