@@ -127,7 +127,7 @@ pref 210+    to <allow-listed IPs> lookup main                                  
 pref 300     prohibit                                                              # all other destinations: denied (profile lan/strict)
 ```
 
-- *Inbound:* stock ports 8898/8899 (Flashforge LAN API, FlashPrint, Orca native) and 8080 (camera) are toggles. The rule set can also restrict SSH and Moonraker to given source addresses.
+- *Inbound:* stock ports 8898/8899 (Flashforge LAN API, FlashPrint, Orca native) and 8080 (camera, plain HTTP by choice; see Phase 2) are toggles, and the camera port can be limited to `CAMERA_ALLOW` sources. The rule set can also restrict SSH and Moonraker to given source addresses.
 - *Outbound:* default deny. Allowed: the LAN, DNS to the configured resolver, NTP, and named allow-lists. NTP goes to a configured server; stock 5.2.0 uses `pool.ntp.org` via `/opt/ntpclient`, so allow that or point it at a LAN NTP server. `zforge fw check` opens only the update hosts (`update.sz3dp.com:10443`, `update.flash3dcloud.com:32445`, `update.voxelshare.com`), and only while it runs. Stock processes all run as root, so the policy is per destination, not per process.
   - Allow-listed host names are resolved to /32 rules when the firewall is applied, and refreshed periodically.
   - `/etc/hosts` sinkholing of the vendor hosts stays as defence in depth.
@@ -235,9 +235,21 @@ Found and fixed along the way:
 5. NTP to the configured server works, and the certificate is generated on the first boot (if none was imported).
 6. Reboot and power-cycle: everything comes back; the rescue-disable stick works.
 
-### Phase 2: Firewall
-- Profiles, CLI, the confirm/rollback timer, the USB escape hatch, and the fallback mode if needed.
-- **Exit criteria:** with `strict`, a capture on the LAN gateway shows no traffic to vendor hosts over 24 h, and Orca, SSH and NTP still work.
+### Phase 2: Firewall and camera
+- **Firewall:** profiles, CLI, the confirm/rollback timer, and the USB escape hatch.
+- **Camera:** an always-on stream, run by zforge, built for low overhead while printing.
+  - It runs the stock `/opt/mjpg-streamer` (already on the printer; about 1.1 MB RSS under zmod), with no extra binaries.
+    - `input_uvc -f MJPEG`: the camera's own MJPEG is passed through, never re-encoded.
+    - `output_http -p 8080 -n`: mjpg-streamer's remote commands are off.
+    - No `output_file`: unlike stock, no JPEG is written to `/data` every few seconds.
+  - **Plain HTTP, no TLS and no login,** by choice, to keep the CPU for printing. Who can reach it is set by the firewall only: `CAMERA=on|off`, plus an optional source restriction (`CAMERA_ALLOW`, e.g. one PC or the LAN CIDR) using `from`/`iif` + `dport 8080` rules.
+  - Settings in `zforge.conf`: `CAMERA_RES` (default 1280x720) and `CAMERA_FPS` (default 15).
+  - A Moonraker `[webcam]` entry points clients at `http://PRINTER_IP:8080/?action=stream`.
+  - The touchscreen's own camera setting must stay off, because a UVC device opens only once (zmod had the same rule). zforge detects the stock streamer and logs a warning instead of fighting over the device.
+- **Exit criteria:**
+  - with `strict`, a capture on the LAN gateway shows no traffic to vendor hosts over 24 h, and Orca, SSH and NTP still work;
+  - the camera stream is reachable only from `CAMERA_ALLOW`;
+  - the streamer's CPU and RSS during a print are recorded in `docs/device-notes.md`.
 
 ### Phase 3: Firmware update path
 - `zforge fw check|install|backup`, Moonraker macros for them, and the re-arm USB stick.
