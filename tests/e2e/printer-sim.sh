@@ -148,6 +148,9 @@ KEY=$(P $ZFH/bin/zforge apikey show 2>/dev/null)
 code() { $LAN curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
 
 echo "== SSH (from the LAN)"
+i=0; while [ $i -lt 40 ]; do $LAN $SSHC root@10.9.0.1 true 2>/dev/null && break; sleep 3; i=$((i + 1)); done
+out=$($LAN $SSHC root@10.9.0.1 echo hello 2>&1)
+[ "$out" = hello ] || echo "        diag: ssh output: $(echo "$out" | tr '\n' ' ')"
 check "/data made non-world-writable for dropbear" sh -c "[ -z \"\$(find $R/data -maxdepth 0 -perm -o+w)\" ]"
 check "ssh root with key works"                sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
 check "only publickey auth offered"            sh -c "$LAN $SSHC -o PreferredAuthentications=password -o BatchMode=yes root@10.9.0.1 true 2>&1 | grep -q 'Permission denied (publickey)'"
@@ -159,7 +162,7 @@ if [ ! -f "$R/data/scp.gcode" ]; then
     echo "        diag: $($LAN scp -O -i "$W/pc/id" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$W/pc/t1.gcode" root@10.9.0.1:/data/scp.gcode 2>&1 | tr '\n' ' ')"
 fi
 check "zforge on PATH in a login shell"        sh -c "$LAN $SSHC root@10.9.0.1 'sh -l -c \"command -v zforge\"' | grep -q /data/.zforge/bin/zforge"
-check "zforge status over ssh"                 sh -c "$LAN $SSHC root@10.9.0.1 $ZFH/bin/zforge status | grep -q 'moonraker *running'"
+check "zforge status over ssh (no login shell)" sh -c "$LAN $SSHC root@10.9.0.1 zforge status | grep -q 'moonraker *running'"
 
 echo "== Moonraker over TLS (from the LAN)"
 check "API key readable (zforge apikey show)"  [ -n "$KEY" ]

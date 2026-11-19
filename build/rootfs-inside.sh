@@ -50,6 +50,8 @@ cat >/src/dropbear/localoptions.h <<EOF
 #define DROPBEAR_X11FWD 0
 #define SFTPSERVER_PATH "$ZF_PREFIX/bin/sftp-server"
 #define DEFAULT_PATH "/usr/bin:/bin:/usr/sbin:/sbin:$ZF_PREFIX/bin"
+/* root sessions use this one: zforge, scp (legacy -O) and sftp-server live in $ZF_PREFIX/bin */
+#define DEFAULT_ROOT_PATH "/usr/sbin:/usr/bin:/sbin:/bin:$ZF_PREFIX/bin"
 #define DROPBEAR_PIDFILE "/var/run/zforge-dropbear.pid"
 EOF
 (
