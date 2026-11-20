@@ -419,6 +419,11 @@ P /etc/init.d/S35zforge start >/dev/null 2>&1
 fi
 
 echo "== shutdown and disable"
+P /etc/init.d/S35zforge stop >/dev/null 2>&1
+P /etc/init.d/S35zforge start >/dev/null 2>&1   # a fresh boot, and right away...
+P /etc/init.d/S35zforge stop                    # ...a shutdown while it's still starting services
+sleep 20
+check "stop during boot: nothing starts later" sh -c "! pgrep -f '[m]oonraker.py' >/dev/null"
 P /etc/init.d/S35zforge stop
 pgrep -a -f '[m]oonraker.py|[d]ropbear' | sed 's/^/        still running: /'
 check "services stopped"                       sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear' >/dev/null"
