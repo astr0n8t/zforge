@@ -341,6 +341,7 @@ if [ -n "${FW_PKG_REAL:-}" ]; then
     check "fw (real package): hook still there" cmp "$R/etc/init.d/S35zforge" "$ZFX/share/S35zforge"
     check "fw (real package): rcS runs S??*"   grep -q 'for i in /etc/init.d/S??\*' "$R/etc/init.d/rcS"
     check "fw (real package): vendor exit 0"   grep -q "rc=0 Adventurer5MPro-real.tgz" "$ZFX/var/fw-history.log"
+    check "fw (real package): identical MCU fw, no flash flag" sh -c "! ls $R/opt/PROGRAM/control/*/Update >/dev/null 2>&1"
     cp "$ZFX/var/log/fw-install.log" "$W/fw-install-real.log" 2>/dev/null
 fi
 sw_before=$(ls "$R/opt/PROGRAM/software")
@@ -358,6 +359,22 @@ check "fw:   zforge hook still installed"      cmp "$R/etc/init.d/S35zforge" "$Z
 check "fw:   history logged"                   grep -q "Adventurer5MPro-9.9.9.tgz.*software=9.9.9" "$ZFX/var/fw-history.log"
 check "fw:   staging dir cleaned up"           [ ! -e "$R/data/update" ]
 check "fw: status shows the version"           sh -c "chroot $R /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge fw status | grep -q 'software=9.9.9'"
+# MCU firmware: identical -> no flash, normal reboot; new -> keep the flag, ask for a power cycle, no reboot
+fwr() { P $ZFH/bin/zforge fw install "$@" >"$W/fw.out" 2>&1; }
+ctl_cur=$(ls -1t "$R/opt/PROGRAM/control" | head -n 1)
+CONTROL_FROM="$R/opt/PROGRAM/control/$ctl_cur" CONTROL_VER="$ctl_cur" "$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.11.tgz" 9.9.11
+CONTROL_FROM="$R/opt/PROGRAM/control/$ctl_cur" CONTROL_VER=9.9.12 CONTROL_TWEAK=1 "$FAKE" "$R/data/pkgs/Adventurer5MPro-9.9.12.tgz" 9.9.12
+rm -f "$R/tmp/zf-reboot-requested"
+check "fw: same MCU fw: installs"              fwr /data/pkgs/Adventurer5MPro-9.9.11.tgz
+check "fw:   no MCU flash flag left"           sh -c "! ls $R/opt/PROGRAM/control/*/Update >/dev/null 2>&1"
+check "fw:   reboots normally"                 [ -e "$R/tmp/zf-reboot-requested" ]
+rm -f "$R/tmp/zf-reboot-requested"
+check "fw: new MCU fw: installs"               fwr /data/pkgs/Adventurer5MPro-9.9.12.tgz
+check "fw:   MCU flash flag kept"              [ -e "$R/opt/PROGRAM/control/9.9.12/Update" ]
+check "fw:   asks for a power cycle"           grep -q "POWER-CYCLE" "$W/fw.out"
+check "fw:   does NOT warm-reboot"             [ ! -e "$R/tmp/zf-reboot-requested" ]
+rm -f "$R/opt/PROGRAM/control/9.9.12/Update"   # (as the successful cold-boot flash would)
+
 # install from a URL on the "internet": the firewall (lan) must open just that host, and only for the download
 "$FAKE" "$W/Adventurer5MPro-9.9.10.tgz" 9.9.10
 $LAN sh -c "cd $W && exec python3 -m http.server --bind 203.0.113.6 8000" >/dev/null 2>&1 &

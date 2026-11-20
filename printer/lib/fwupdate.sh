@@ -37,6 +37,16 @@ fwu_installed() {  # fwu_installed COMPONENT -> version dir name under /opt/PROG
     ls -1t "$PROGRAM_DIR/$1" 2>/dev/null | grep -v '^temp$' | head -n 1
 }
 
+# Fingerprint of an MCU firmware dir (control-<ver>): md5 of every file but
+# the Update flag and md5sum.list (whose formatting differs between packages).
+fwu_fw_fingerprint() {
+    ( cd "$1" 2>/dev/null || exit 0
+      for f in $(ls | sort); do
+          case "$f" in Update|md5sum.list) continue ;; esac
+          [ -f "$f" ] && echo "$f $(md5sum <"$f" | cut -d' ' -f1)"
+      done )
+}
+
 fwu_versions() {
     for c in software library kernel control; do printf '%s=%s ' "$c" "$(fwu_installed "$c")"; done
     echo
@@ -153,7 +163,7 @@ fw_cmd_install() {
     if [ -e "$FWU_STAGE/screwflag" ] && [ $force = 0 ]; then
         fail "this is a Factory package: it skips the model check and overwrites Wi-Fi and printer configs. Use a regular package, or --force"
     fi
-    comps=""
+    comps=""; mcu_same=0
     for f in "$FWU_STAGE"/*-*.tar.xz; do
         [ -f "$f" ] || continue
         b=$(basename "$f" .tar.xz); c=${b%%-*}; v=${b#*-}
@@ -161,8 +171,12 @@ fw_cmd_install() {
         if ! tar -xf "$f" -C "$tmp" 2>/dev/null || ! ( cd "$tmp" && md5sum -c md5sum.list >/dev/null 2>&1 ); then
             rm -rf "$tmp"; fail "$b fails its md5sum.list check (corrupted package?)"
         fi
-        rm -rf "$tmp"
         cur=$(fwu_installed "$c")
+        if [ "$c" = control ] && [ -n "$cur" ] &&
+            [ "$(fwu_fw_fingerprint "$tmp")" = "$(fwu_fw_fingerprint "$PROGRAM_DIR/control/$cur")" ]; then
+            mcu_same=1     # same MCU firmware as installed: no flash needed
+        fi
+        rm -rf "$tmp"
         if [ -n "$cur" ] && ver_lt "$v" "$cur" && [ $force = 0 ]; then
             fail "$c $v is older than the installed $cur (downgrade; use --force)"
         fi
@@ -201,6 +215,22 @@ fw_cmd_install() {
         fi
     done
     hook_check
+    # MCU firmware: the stock boot flashes the MCUs while a control/<ver>/Update
+    # flag exists. The toolhead flasher needs a cold power-up (a warm reboot
+    # leaves the MCUs running their firmware, the flash fails, and stock's
+    # warm "reboot -f" then loops). Stock USB updates end by waiting for the
+    # user to power-cycle, for exactly this reason.
+    mcu_pending=0
+    ctl=$(fwu_installed control)
+    if [ -n "$ctl" ] && [ -e "$PROGRAM_DIR/control/$ctl/Update" ]; then
+        if [ $mcu_same = 1 ]; then
+            rm -f "$PROGRAM_DIR/control/$ctl/Update"
+            zf_log "fw: MCU firmware unchanged ($ctl): skipping the redundant MCU flash"
+        else
+            mcu_pending=1
+            zf_log "fw: this update flashes new MCU firmware at the next cold boot"
+        fi
+    fi
     after=$(fwu_versions)
     echo "$(date '+%F %T') rc=$rc $name sha256=$sha before: $before after: $after" >>"$FWU_HISTORY"
     rm -rf "$FWU_STAGE"
@@ -208,6 +238,17 @@ fw_cmd_install() {
         zf_die "the vendor installer failed (rc=$rc); see $ZF_HOME/var/log/fw-install.log. Not rebooting."
     fi
     zf_log "fw: installed. Now: $after"
+    if [ $mcu_pending = 1 ]; then
+        echo
+        echo "  This update includes new MCU firmware. To flash it, POWER-CYCLE the printer:"
+        echo "  switch it off, wait 10 seconds, switch it on. A reboot is not enough: the"
+        echo "  MCUs only take the flash after a cold power-up. The screen shows 'updating"
+        echo "  MCU' for a few minutes, then the printer starts normally. Don't switch it"
+        echo "  off while that screen is up."
+        echo
+        zf_log "fw: not rebooting: waiting for a power cycle (MCU flash)"
+        return 0
+    fi
     if [ $reboot_after = 1 ]; then
         zf_log "fw: rebooting"
         sync; sleep 2; reboot
