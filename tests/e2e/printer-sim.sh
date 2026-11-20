@@ -219,7 +219,14 @@ echo "== upgrade over SSH (same package again)"
 rm -f "$R/tmp/zf-reboot-requested"
 # the real PC-side script, with the printer's reboot replaced by the shim
 RSHIM=$( [ "$MODE" = stock ] && echo /zf-shim/reboot || echo "$SHIM/reboot")
-SSH="$LAN $SSHC" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$PKG" >"$W/upgrade.out" 2>&1
+# host mode: the "printer" is this x86 host, so its SSH sessions need the
+# uname shim (stock mode runs the real armv7 userland and needs nothing)
+RSSH="$LAN $SSHC"
+if [ "$MODE" = host ]; then
+    printf '#!/bin/sh\n# ssh wrapper: prefix the remote command with the shim PATH\nt=$1; shift\nexec %s "$t" "PATH=%s:\\$PATH; $*"\n' "$LAN $SSHC" "$SHIM" >"$W/ssh-host"
+    chmod +x "$W/ssh-host"; RSSH="$W/ssh-host"
+fi
+SSH="$RSSH" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$PKG" >"$W/upgrade.out" 2>&1
 upgrade_rc=$?
 check "run-install.sh succeeded"               [ "$upgrade_rc" = 0 ]
 check "run-install.sh reported success"        grep -q "^done: zforge .* installed" "$W/upgrade.out"
@@ -244,7 +251,7 @@ head -c 2000000 "$B/p/zforge-rootfs-armv7.tar.gz" >"$B/r" && mv "$B/r" "$B/p/zfo
 tar -C "$B/p" -cf "$B/Adventurer5MPro-zforge-9.9.9.tgz" .
 ver_before=$(cat "$ZFX/share/VERSION")
 rm -f "$R/tmp/zf-reboot-requested"
-SSH="$LAN $SSHC" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$B/Adventurer5MPro-zforge-9.9.9.tgz" >"$W/upgrade-broken.out" 2>&1
+SSH="$RSSH" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$B/Adventurer5MPro-zforge-9.9.9.tgz" >"$W/upgrade-broken.out" 2>&1
 broken_rc=$?
 check "broken upgrade: run-install.sh fails"   [ "$broken_rc" != 0 ]
 check "broken upgrade: says INSTALL FAILED"    grep -q "INSTALL FAILED" "$W/upgrade-broken.out"
