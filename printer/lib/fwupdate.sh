@@ -251,7 +251,7 @@ fw_cmd_install() {
     fi
     if [ $reboot_after = 1 ]; then
         zf_log "fw: rebooting"
-        sync; sleep 2; reboot
+        sync; sleep 2; $ZF_REBOOT
     else
         echo "installed; reboot to run the new firmware"
     fi

@@ -136,8 +136,8 @@ check "PATH snippet installed"                 cmp "$R/etc/profile.d/zforge.sh" 
 check "SSH key imported from stick"            grep -qF "$(cat "$W/pc/id.pub")" "$ZFX/etc/ssh/authorized_keys"
 check "moonraker.user.conf imported"           grep -q "user include from the stick" "$ZFX/etc/moonraker.user.conf"
 check "existing certificate imported"          cmp "$R/mnt/moonraker.cert" "$ZFX/var/moonraker/certs/moonraker.cert"
-{ echo 'SWAP_MB=16'; echo 'NTP_SERVERS=""'; echo 'ZF_IP=/zf-shim/ip'; } >>"$ZFX/etc/zforge.conf"
-[ "$MODE" = host ] && echo "ZF_IP=$SHIM/ip" >>"$ZFX/etc/zforge.conf"
+{ echo 'SWAP_MB=16'; echo 'NTP_SERVERS=""'; echo 'ZF_IP=/zf-shim/ip'; echo 'ZF_REBOOT=/zf-shim/reboot'; } >>"$ZFX/etc/zforge.conf"
+[ "$MODE" = host ] && { echo "ZF_IP=$SHIM/ip"; echo "ZF_REBOOT=$SHIM/reboot"; } >>"$ZFX/etc/zforge.conf"
 
 # ------------------------------------------------------------------ boot
 echo "== boot (S35zforge start)"

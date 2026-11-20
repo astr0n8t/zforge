@@ -45,6 +45,7 @@ zf_defaults() {
     NTP_SERVERS="pool.ntp.org"
     TLS_DAYS=825
     TLS_EXTRA_NAMES=""
+    ZF_REBOOT=reboot              # command zforge uses to reboot (tests override it)
     # firewall (Phase 2)
     FIREWALL_PROFILE=lan
     LAN_CIDRS="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16"
