@@ -86,7 +86,11 @@ See [firmware-updates.md](firmware-updates.md). In short: `zforge fw install <pa
 
 ## Upgrading
 
-- **Over SSH:** `tools/install/run-install.sh root@PRINTER dist/Adventurer5MPro-zforge-<ver>.tgz`. The printer reboots.
+- **From your PC, over SSH (recommended):** `tools/install/run-install.sh root@PRINTER Adventurer5MPro-zforge-<ver>.tgz`. The printer reboots, only if the install succeeded.
+- **On the printer:** `zforge update /data/Adventurer5MPro-zforge-<ver>.tgz`, or a URL. A URL opens only that host through the firewall, and only for the download.
+  - It refuses non-zforge packages, and downgrades unless you pass `--force`.
+  - The installer runs detached, so a dropped SSH session doesn't interrupt it, and you see its log as it goes.
+  - It reboots when done (`--no-reboot` to skip). On failure it doesn't reboot, and restarts the installed version.
 - **By USB:** same as a first install. Your configuration, SSH keys, certificate and Moonraker data in `/data/.zforge/etc` and `/data/.zforge/var` are kept.
 
 ## Rescue sticks

@@ -389,6 +389,33 @@ check "fw:   host blocked again"               notc reach nc -w2 203.0.113.6 800
 P $ZFH/bin/zforge fw allow-ota 15s >/dev/null
 check "fw: allow-ota opens the internet"       out_to 203.0.113.5
 check "fw: allow-ota closes by itself"         wait_for notc out_to 203.0.113.5
+
+echo "== zforge update (on the printer)"
+zver=$(cat "$ZFX/share/VERSION")
+cp "$PKG" "$R/data/pkgs/Adventurer5MPro-zforge-$zver.tgz"
+cp "$PKG" "$W/Adventurer5MPro-zforge-$zver.tgz"          # served from the "internet" (203.0.113.6:8000)
+D=$W/down; rm -rf "$D"; mkdir -p "$D/p"; tar -xf "$PKG" -C "$D/p"; echo 0.0.1 >"$D/p/zforge/share/VERSION"
+( cd "$D/p" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort | xargs sha256sum >SHA256SUMS )
+tar -C "$D/p" -cf "$R/data/pkgs/Adventurer5MPro-zforge-0.0.1.tgz" .
+zup() { P $ZFH/bin/zforge update "$@" >"$W/zup.out" 2>&1; }
+check "update: refuses a stock package"        notc zup /data/pkgs/Adventurer5MPro-9.9.9.tgz
+check "update: refuses a downgrade"            notc zup /data/pkgs/Adventurer5MPro-zforge-0.0.1.tgz
+check "update:   ...and says why"              grep -q "older than the installed" "$W/zup.out"
+check "update:   nothing changed"              [ "$(cat "$ZFX/share/VERSION")" = "$zver" ]
+rm -f "$R/tmp/zf-reboot-requested"
+check "update: from a local file"              zup /data/pkgs/Adventurer5MPro-zforge-$zver.tgz
+check "update:   reports success"              grep -q "zforge $zver installed" "$W/zup.out"
+check "update:   showed the installer log"     grep -q "zforge installer $zver mode=ssh" "$W/zup.out"
+check "update:   reboot triggered"             sh -c "i=0; while [ \$i -lt 10 ]; do [ -e '$R/tmp/zf-reboot-requested' ] && exit 0; sleep 1; i=\$((i+1)); done; exit 1"
+check "update:   kept SSH keys"                grep -qF "$(cat "$W/pc/id.pub")" "$ZFX/etc/ssh/authorized_keys"
+check "update:   staging dir removed"          [ ! -e "$R/data/.zforge-update" ]
+P /etc/init.d/S35zforge start >/dev/null 2>&1        # the "reboot"
+check "update:   ssh works afterwards"         wait_for sh -c "$LAN $SSHC root@10.9.0.1 true"
+rm -f "$R/tmp/zf-reboot-requested"
+check "update: from a URL (through the firewall)" zup "http://203.0.113.6:8000/Adventurer5MPro-zforge-$zver.tgz" --no-reboot
+check "update:   no reboot with --no-reboot"   [ ! -e "$R/tmp/zf-reboot-requested" ]
+check "update:   download host blocked again"  notc reach nc -w2 203.0.113.6 8000
+P /etc/init.d/S35zforge start >/dev/null 2>&1
 fi
 
 echo "== shutdown and disable"
