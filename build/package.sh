@@ -32,7 +32,7 @@ cp "$DIST/zforge-rootfs-armv7.tar.gz" "$P/"
 
 OUT="$DIST/Adventurer5MPro-zforge-$ZFORGE_VERSION.tgz"
 tar -C "$P" --owner=0 --group=0 -cf "$OUT" .
-for r in disable uninstall firewall-open; do
+for r in disable uninstall firewall-open mcu-diag skip-mcu-update; do
     mkdir -p "$DIST/rescue-$r"
     cp "$TOP/rescue/$r/flashforge_init.sh" "$DIST/rescue-$r/flashforge_init.sh"
 done
