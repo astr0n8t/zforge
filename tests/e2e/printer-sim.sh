@@ -295,12 +295,13 @@ check "STOCK_LAN_API=on: 8899 reachable"       lan_to 8899
 
 set_conf SSH_ALLOW 10.9.0.99/32                # locks this PC out of SSH
 P $ZFH/bin/zforge firewall refresh >/dev/null 2>&1 &   # concurrent refresh (the lock must serialize)
-P $ZFH/bin/zforge firewall apply 15 >/dev/null
-wait $!
-check "no rule errors under concurrent apply"  sh -c "! grep -q 'FAILED' $ZFX/var/log/zforge.log"
+refresh_pid=$!
+P $ZFH/bin/zforge firewall apply 90 >/dev/null         # long window: rules install slowly in the simulation
 check "apply: lockout takes effect"            notc lan_to 22
 check "status shows the pending change"        sh -c "chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge firewall status | grep -q PENDING"
-check "not confirmed: reverted, SSH back"      wait_for lan_to 22
+wait $refresh_pid
+check "no rule errors under concurrent apply"  sh -c "! grep -q 'FAILED' $ZFX/var/log/zforge.log"
+check "not confirmed: reverted, SSH back"      sh -c "i=0; while [ \$i -lt 90 ]; do $LAN ip neigh flush all; out=\$(timeout 5 $LAN nc -w2 10.9.0.1 22 </dev/null 2>/dev/null); [ -n \"\$out\" ] && exit 0; sleep 2; i=\$((i+1)); done; exit 1"
 P $ZFH/bin/zforge firewall apply 900 >/dev/null
 check "lockout applied again (no confirm)"     notc lan_to 22
 P /etc/init.d/S35zforge stop >/dev/null 2>&1; P /etc/init.d/S35zforge start >/dev/null 2>&1
@@ -376,12 +377,12 @@ check "fw:   does NOT warm-reboot"             [ ! -e "$R/tmp/zf-reboot-requeste
 rm -f "$R/opt/PROGRAM/control/9.9.12/Update"   # (as the successful cold-boot flash would)
 
 # install from a URL on the "internet": the firewall (lan) must open just that host, and only for the download
-"$FAKE" "$W/Adventurer5MPro-9.9.10.tgz" 9.9.10
+"$FAKE" "$W/Adventurer5MPro-9.9.20.tgz" 9.9.20
 $LAN sh -c "cd $W && exec python3 -m http.server --bind 203.0.113.6 8000" >/dev/null 2>&1 &
 sleep 2
 check "fw: download host blocked beforehand"   notc reach nc -w2 203.0.113.6 8000
-check "fw: install from URL"                   fwi http://203.0.113.6:8000/Adventurer5MPro-9.9.10.tgz
-check "fw:   new version installed"            [ "$(ls "$R/opt/PROGRAM/software")" = 9.9.10 ]
+check "fw: install from URL"                   fwi http://203.0.113.6:8000/Adventurer5MPro-9.9.20.tgz
+check "fw:   new version installed"            [ "$(ls "$R/opt/PROGRAM/software")" = 9.9.20 ]
 check "fw:   temporary allow removed"          sh -c "! ip rule | grep -q '^198:'"
 check "fw:   host blocked again"               notc reach nc -w2 203.0.113.6 8000
 # OTA window

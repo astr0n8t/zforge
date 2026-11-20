@@ -171,17 +171,25 @@ fw_ipv6() {
 # One firewall change at a time (apply, refresh and the rollback timer can
 # otherwise interleave their flush/add sequences). mkdir is atomic.
 FW_LOCK=$ZF_RUN/fw.lock
+# fw_lock [TIMEOUT]: wait up to TIMEOUT seconds (default 300; 0 = forever).
+# The rollback timer and the boot apply wait forever: they must never be
+# skipped, or an unconfirmed (maybe locking-out) change could stay.
 fw_lock() {
-    i=0
+    limit=${1:-300}
+    deadline=$(( $(date +%s) + limit ))
+    me=$(sh -c 'echo $PPID')      # this (sub)shell's own pid; $$ would be the parent's
     while ! mkdir "$FW_LOCK" 2>/dev/null; do
         owner=$(cat "$FW_LOCK/pid" 2>/dev/null)
         if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then   # stale lock
             rm -f "$FW_LOCK/pid"; rmdir "$FW_LOCK" 2>/dev/null; continue
         fi
-        i=$((i + 1)); [ $i -le 120 ] || { zf_log "firewall: lock held by pid ${owner:-?} for 2 min, giving up"; return 1; }
+        if [ "$limit" != 0 ] && [ "$(date +%s)" -ge "$deadline" ]; then
+            zf_log "firewall: lock held by pid ${owner:-?} for ${limit}s, giving up"
+            return 1
+        fi
         sleep 1
     done
-    echo "$$" >"$FW_LOCK/pid"
+    echo "$me" >"$FW_LOCK/pid"
 }
 fw_unlock() { rm -f "$FW_LOCK/pid"; rmdir "$FW_LOCK" 2>/dev/null; return 0; }
 
@@ -206,7 +214,7 @@ fw_install() {
 # resulting rules are unchanged, unless FORCE=1.
 fw_apply_conf() {
     (
-        fw_lock || exit 1
+        fw_lock "${FW_LOCK_TIMEOUT:-300}" || exit 1
         trap fw_unlock EXIT
         zf_defaults
         # shellcheck disable=SC1090
@@ -239,11 +247,11 @@ fw_boot() {
         rm -f "$FW_PENDING"
         zf_log "firewall: an unconfirmed change was pending at reboot; using the last confirmed settings"
     fi
-    FORCE=1 RESOLVE=0 fw_apply_conf "$(fw_effective_conf)"
+    FW_LOCK_TIMEOUT=0 FORCE=1 RESOLVE=0 fw_apply_conf "$(fw_effective_conf)"
 }
 
 # Periodic re-resolve (DNS answers and resolv.conf change).
-fw_refresh() { RESOLVE=1 fw_apply_conf "$(fw_effective_conf)"; }
+fw_refresh() { FW_LOCK_TIMEOUT=120 RESOLVE=1 fw_apply_conf "$(fw_effective_conf)"; }
 
 fw_cmd_apply() {
     secs=${1:-$FW_CONFIRM_SECONDS}
@@ -270,7 +278,7 @@ fw_cmd_rollback_timer() {
     if [ -e "$FW_PENDING" ]; then
         rm -f "$FW_PENDING"
         zf_log "firewall: change not confirmed within $1s, reverting to the last confirmed settings"
-        FORCE=1 fw_apply_conf "$FW_CONFIRMED"
+        FW_LOCK_TIMEOUT=0 FORCE=1 fw_apply_conf "$FW_CONFIRMED"
     fi
     rm -f "$ZF_RUN/fw-rollback.pid"
 }
