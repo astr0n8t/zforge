@@ -278,6 +278,14 @@ The 5.2.0 touchscreen app starts Klipper the same way as 3.2.3 (`/opt/klipper/st
 
 **On-printer check:** run `zforge fw install` with the 5.2.0 package; afterwards, the touchscreen, Klipper and Moonraker work and `zforge status` is clean.
 
+**0.3.2 to 0.4.0, after the first real firmware update:**
+- **The MCU reboot loop:** the toolhead MCU flash needs a cold power-up, and `fw install`'s warm reboot looped it. Now an identical MCU firmware skips the flash, and a new one asks for a power cycle without rebooting.
+- **The firewall rollback could give up on its lock;** it now never does.
+- **Boot-then-shutdown race:** a still-running background boot could start services after a shutdown; shutdown now stops it first.
+- **New in 0.4.0:** `zforge update` (on-printer self-update).
+
+e2e: 127 checks in stock mode (with the real 5.2.0 package), 79 in host mode.
+
 ### Phase 4: Mainline Klipper (opt-in)
 - Mainline Klipper in the chroot, the ported Flashforge extras, MCU build and flash, and a tested path back to stock.
 - **Exit criteria:** with mainline Klipper running, the stock screen can print, level and run the load-cell probe, and switching back to stock fully restores the stock MCU firmware.
