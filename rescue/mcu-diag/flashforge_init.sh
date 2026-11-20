@@ -27,6 +27,10 @@ flasher_pids() {
                 echo "   state: $(awk '{print $3}' /proc/$p/stat 2>/dev/null)  wchan: $(cat /proc/$p/wchan 2>/dev/null)"
                 ls -l /proc/$p/fd 2>/dev/null | awk '{print "   fd " $(NF-2) " -> " $NF}'
             done
+            echo "-- load: $(cat /proc/loadavg)"
+            echo "-- mem: $(grep -E '^(MemAvailable|SwapFree):' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+            echo "-- zforge/other busy processes:"
+            ps | grep -E '[m]oonraker|[d]ropbear|[m]jpg_streamer|[n]tpd|[m]kswap|[d]d if=' | sed 's/^/   /'
             echo "-- uarts:"; cat /proc/tty/driver/serial 2>/dev/null | grep -v 'uart:unknown'
             echo "-- usb:"; cat /sys/bus/usb/devices/*/product 2>/dev/null | tr '\n' ',' ; echo
             echo "-- dmesg (last 8):"; dmesg | tail -n 8
