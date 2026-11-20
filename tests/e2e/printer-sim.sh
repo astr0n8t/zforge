@@ -68,7 +68,7 @@ fi
 echo "mode: $MODE"
 mkdir -p "$SHIM"
 # reboot must not reboot anything
-printf '#!/bin/sh\necho "[shim] reboot requested"\n' >"$SHIM/reboot"
+printf '#!/bin/sh\necho "[shim] reboot requested"\n: >/tmp/zf-reboot-requested\n' >"$SHIM/reboot"
 # `ip` relay: printer side writes a request, the host executes it
 cat >"$SHIM/ip" <<'EOF'
 #!/bin/sh
@@ -216,9 +216,17 @@ check "tls regen: old cert no longer served"   [ "$(code --cacert "$W/pc/zmod.ce
 cp "$CERT" "$W/pc/before-upgrade.cert"
 
 echo "== upgrade over SSH (same package again)"
-$LAN $SSHC root@10.9.0.1 "rm -rf /data/.zforge-update && mkdir -p /data/.zforge-update && tar -xf - -C /data/.zforge-update" <"$PKG"
-$LAN $SSHC root@10.9.0.1 "PATH=$( [ "$MODE" = stock ] && echo /zf-shim || echo "$SHIM"):\$PATH sh /data/.zforge-update/flashforge_init.sh --ssh" >"$W/upgrade.out" 2>&1
-check "upgrade installer succeeded"            grep -q "installed" "$W/upgrade.out"
+rm -f "$R/tmp/zf-reboot-requested"
+# the real PC-side script, with the printer's reboot replaced by the shim
+RSHIM=$( [ "$MODE" = stock ] && echo /zf-shim/reboot || echo "$SHIM/reboot")
+SSH="$LAN $SSHC" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$PKG" >"$W/upgrade.out" 2>&1
+upgrade_rc=$?
+check "run-install.sh succeeded"               [ "$upgrade_rc" = 0 ]
+check "run-install.sh reported success"        grep -q "^done: zforge .* installed" "$W/upgrade.out"
+check "upgrade installer succeeded"            grep -q "installed" "$R/data/zforge-install.log"
+check "staging dir removed"                    [ ! -e "$R/data/.zforge-update" ]
+check "reboot triggered after the install"     sh -c "i=0; while [ \$i -lt 10 ]; do [ -e '$R/tmp/zf-reboot-requested' ] && exit 0; sleep 1; i=\$((i+1)); done; exit 1"
+check "run-install.sh refuses a stock package" sh -c "cp '$PKG' '$W/Adventurer5MPro-5.2.0.tgz'; ! SSH=false sh '$TOP/tools/install/run-install.sh' root@x '$W/Adventurer5MPro-5.2.0.tgz'"
 check "upgrade kept SSH keys"                  grep -qF "$(cat "$W/pc/id.pub")" "$ZFX/etc/ssh/authorized_keys"
 check "upgrade kept the certificate"           cmp "$W/pc/before-upgrade.cert" "$CERT"
 check "upgrade kept config"                    grep -q '^SWAP_MB=16' "$ZFX/etc/zforge.conf"
@@ -226,6 +234,25 @@ P /etc/init.d/S35zforge start
 i=0; while [ $i -lt 60 ]; do [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ] && break; sleep 3; i=$((i + 1)); done
 check "after upgrade: same API key works"      [ "$(code --cacert "$CERT" -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ]
 check "after upgrade: ssh works"               sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
+
+echo "== failed upgrade over SSH (truncated rootfs, valid checksums)"
+B=$W/broken; rm -rf "$B"; mkdir -p "$B/p"
+tar -xf "$PKG" -C "$B/p"
+echo 9.9.9-broken >"$B/p/zforge/share/VERSION"
+head -c 2000000 "$B/p/zforge-rootfs-armv7.tar.gz" >"$B/r" && mv "$B/r" "$B/p/zforge-rootfs-armv7.tar.gz"
+( cd "$B/p" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort | xargs sha256sum >SHA256SUMS )
+tar -C "$B/p" -cf "$B/Adventurer5MPro-zforge-9.9.9.tgz" .
+ver_before=$(cat "$ZFX/share/VERSION")
+rm -f "$R/tmp/zf-reboot-requested"
+SSH="$LAN $SSHC" REMOTE_REBOOT="$RSHIM" sh "$TOP/tools/install/run-install.sh" root@10.9.0.1 "$B/Adventurer5MPro-zforge-9.9.9.tgz" >"$W/upgrade-broken.out" 2>&1
+broken_rc=$?
+check "broken upgrade: run-install.sh fails"   [ "$broken_rc" != 0 ]
+check "broken upgrade: says INSTALL FAILED"    grep -q "INSTALL FAILED" "$W/upgrade-broken.out"
+sleep 6
+check "broken upgrade: no reboot triggered"    [ ! -e "$R/tmp/zf-reboot-requested" ]
+check "broken upgrade: old version in place"   [ "$(cat "$ZFX/share/VERSION")" = "$ver_before" ]
+i=0; while [ $i -lt 40 ]; do $LAN $SSHC root@10.9.0.1 true 2>/dev/null && break; sleep 3; i=$((i + 1)); done
+check "broken upgrade: SSH back (restarted)"   sh -c "$LAN $SSHC root@10.9.0.1 echo hello | grep -qx hello"
 
 echo "== firewall (Phase 2; default profile: lan)"
 notc() { ! "$@"; }

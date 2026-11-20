@@ -21,7 +21,17 @@ MODE=usb
 LOGF=/data/zforge-install.log
 if [ "$MODE" = usb ] && grep -q " /mnt " /proc/mounts; then LOGF=/mnt/zforge-install.log; fi
 log() { echo "$(date '+%F %T' 2>/dev/null) $*" | tee -a "$LOGF" >&2; }
-fail() { log "INSTALL FAILED: $*"; sync; exit 1; }
+STOPPED=0
+fail() {
+    log "INSTALL FAILED: $*"
+    # Over SSH, don't leave the printer without zforge (and its SSH server):
+    # bring back whatever version is in place.
+    if [ "$MODE" = ssh ] && [ "$STOPPED" = 1 ] && [ -x "$ZF/bin/zforge" ]; then
+        log "restarting the installed zforge"
+        "$ZF/bin/zforge" boot >>"$LOGF" 2>&1
+    fi
+    sync; exit 1
+}
 
 log "zforge installer $(cat "$WORK_DIR/zforge/share/VERSION" 2>/dev/null) mode=$MODE"
 
@@ -45,6 +55,7 @@ fi
 if [ -x "$ZF/bin/zforge" ]; then
     log "stopping the running zforge"
     "$ZF/bin/zforge" shutdown >>"$LOGF" 2>&1
+    STOPPED=1
     grep -q " $ZF/rootfs/" /proc/mounts && fail "chroot still has mounts under $ZF/rootfs; reboot and retry"
 fi
 
