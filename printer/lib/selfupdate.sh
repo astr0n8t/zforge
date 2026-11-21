@@ -71,10 +71,11 @@ zf_cmd_update() {
         sleep 1
         if [ -f "$SU_RUN/log" ]; then
             n=$(wc -l <"$SU_RUN/log")
-            [ "$n" -gt "$shown" ] && { tail -n $((n - shown)) "$SU_RUN/log"; shown=$n; }
+            # by line number: lines written meanwhile wait for the next round
+            [ "$n" -gt "$shown" ] && { sed -n "$((shown + 1)),${n}p" "$SU_RUN/log"; shown=$n; }
         fi
     done
-    n=$(wc -l <"$SU_RUN/log"); [ "$n" -gt "$shown" ] && tail -n $((n - shown)) "$SU_RUN/log"
+    sed -n "$((shown + 1)),\$p" "$SU_RUN/log"
     rc=$(cat "$SU_RUN/rc")
     if [ "$rc" = 0 ]; then
         if [ $reboot_after = 1 ]; then
