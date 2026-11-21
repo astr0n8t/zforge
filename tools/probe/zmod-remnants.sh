@@ -54,7 +54,7 @@ g /opt/config/printer.cfg "include .*(mod|mod_data)/" "printer.cfg includes zmod
 f /opt/config/moonraker.conf       "zmod Moonraker config (link)"
 f /opt/config/.moonraker.conf.bkp  "zmod Moonraker backup"
 f /opt/config/printer.tmp          "zmod leftover (its scripts write it)"
-f /opt/config/printer111.cfg       "not stock and not zmod: probably a manual copy (check before deleting)"
+f /opt/config/printer111.cfg       "Flashforge factory leftover (USB-MCU test config), unused; safe to delete"
 
 echo "== root's home and system files"
 f /root/swap                       "zmod's 128 MB swap file (on the small stock root partition)"

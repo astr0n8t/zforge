@@ -286,6 +286,13 @@ The 5.2.0 touchscreen app starts Klipper the same way as 3.2.3 (`/opt/klipper/st
 
 e2e: 127 checks in stock mode (with the real 5.2.0 package), 79 in host mode.
 
+**0.4.1: Moonraker-started prints hung Klipper.** Klipper's `SDCARD_PRINT_FILE` walks `/data` with `os.walk(followlinks=True)`, and zforge's chroot bind mounts plus the `gcodes -> /data` symlink made that walk endless. The fix:
+- the chroot runs at `/run/zforge/root`, with its mounts there;
+- the rootfs path is hidden by an empty tmpfs;
+- Moonraker's `gcodes` folder is a bind mount inside the chroot.
+
+e2e now runs Klipper's walk with the printer's own Python (129 stock, 81 host checks).
+
 ### Phase 4: Mainline Klipper (opt-in)
 - Mainline Klipper in the chroot, the ported Flashforge extras, MCU build and flash, and a tested path back to stock.
 - **Exit criteria:** with mainline Klipper running, the stock screen can print, level and run the load-cell probe, and switching back to stock fully restores the stock MCU firmware.
