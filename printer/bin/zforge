@@ -1,0 +1,213 @@
+#!/bin/sh
+# zforge: minimal mod for the Flashforge Adventurer 5M Pro.
+# Runs on the stock BusyBox shell. See `zforge help`.
+
+set -u
+# Don't depend on the caller's PATH (stock keeps chroot, swapon etc. in sbin).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+ZF_SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")
+ZF_LIBDIR=${ZF_LIBDIR:-$(cd "$(dirname "$ZF_SELF")/../lib" && pwd)}
+. "$ZF_LIBDIR/common.sh"
+. "$ZF_LIBDIR/services.sh"
+. "$ZF_LIBDIR/firewall.sh"
+. "$ZF_LIBDIR/moonraker.sh"
+. "$ZF_LIBDIR/tls.sh"
+. "$ZF_LIBDIR/fwupdate.sh"
+. "$ZF_LIBDIR/selfupdate.sh"
+. "$ZF_LIBDIR/uninstall.sh"
+
+zf_load_config
+mkdir -p "$ZF_LOG" "$ZF_RUN" 2>/dev/null
+
+usage() {
+    cat <<EOF
+zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null || echo "?")
+
+  zforge status                    services, ports, firewall, memory
+  zforge start|stop|restart [SVC]  services: sshd ntp moonraker camera fwrefresh (default: all enabled)
+  zforge log [SVC]                 show the last log lines
+  zforge apikey show|rotate        Moonraker API key (rotate restarts Moonraker)
+  zforge tls show                  Moonraker HTTPS certificate and fingerprint
+  zforge tls regen                 new self-signed certificate (restarts Moonraker)
+  zforge tls import CERT KEY       use an existing certificate (restarts Moonraker)
+  zforge firewall status           profile, pending change, current ip rules
+  zforge firewall apply [SECONDS]  apply zforge.conf's firewall settings; reverts unless
+                                   confirmed within SECONDS (default FW_CONFIRM_SECONDS=120)
+  zforge firewall confirm          keep the applied change
+  zforge fw status                 installed stock versions, update history, OTA window
+  zforge fw install PKG|URL [--force] [--no-reboot]
+                                   install a stock update package (Adventurer5MPro-*.tgz):
+                                   checks it, keeps your Wi-Fi config, reboots
+  zforge fw allow-ota [MINUTES]    open outbound internet for the touchscreen's own
+                                   update check (default 30 min); fw close-ota closes it
+  zforge update PKG|URL [--force] [--no-reboot]
+                                   update zforge itself (Adventurer5MPro-zforge-VER.tgz);
+                                   keeps config, keys, certificate; reboots when done
+  zforge uninstall [--yes]         remove zforge (keeps a copy of config, keys, certificate)
+  zforge shell                     enter the zforge chroot (Alpine)
+  zforge enable|disable            run / skip zforge at next boot
+  zforge version
+
+  (boot / shutdown are called by /etc/init.d/S35zforge)
+EOF
+}
+
+cmd_boot() {
+    export ZF_COMPONENT=boot
+    zf_log "boot: zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null)"
+    # The hook must survive anything: make sure it is still installed and current.
+    hook_check
+    # Synchronous part: must finish before S40network brings interfaces up.
+    fw_boot || zf_log "firewall rules FAILED (see above)"
+    # Everything else in the background so the stock boot isn't delayed. Its
+    # own process group, recorded, so `zforge shutdown` (e.g. the installer)
+    # can stop it before it starts anything more.
+    setsid "$ZF_SELF" __boot_bg </dev/null >>"$ZF_LOG/boot.out" 2>&1 &   # zf_log already writes zforge.log
+    echo "$!" >"$ZF_RUN/boot.pid"
+    return 0
+}
+
+cmd_boot_bg() {
+    export ZF_COMPONENT=boot
+    swap_on
+    zf_mount_chroot
+    svc_start sshd
+    svc_start ntp
+    [ "$FIREWALL_PROFILE" = open ] || svc_start fwrefresh
+    [ "$CAMERA" = on ] && svc_start camera
+    if [ "$MOONRAKER" = on ]; then
+        mr_prepare
+        tls_ensure_wait    # waits for an IP address and a sane clock if a cert must be made
+        svc_start moonraker
+    fi
+    zf_log "boot: background start finished"
+    rm -f "$ZF_RUN/boot.pid"
+}
+
+cmd_shutdown() {
+    # first stop a boot that is still starting services, or it could start
+    # (and mount) things after we stopped them
+    p=$(cat "$ZF_RUN/boot.pid" 2>/dev/null)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+        kill -TERM "-$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null
+        i=0; while kill -0 "-$p" 2>/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+        kill -KILL "-$p" 2>/dev/null
+        zf_log "stopped the boot that was still starting services"
+    fi
+    rm -f "$ZF_RUN/boot.pid"
+    for s in camera fwrefresh moonraker ntp sshd; do svc_stop "$s"; done
+    [ -f "$ZF_RUN/fw-rollback.pid" ] && kill "$(cat "$ZF_RUN/fw-rollback.pid")" 2>/dev/null
+    swapoff "$ZF_VAR/swap" 2>/dev/null
+    zf_umount_chroot
+}
+
+# zforge's only files on the stock system: the boot hook and a PATH snippet.
+# Reinstalled at every boot if missing or outdated (e.g. after an update).
+hook_check() {
+    install_stock_file "$ZF_SHARE/S35zforge" "$ZF_HOOK" 755
+    install_stock_file "$ZF_SHARE/zforge-profile.sh" "$ZF_PROFILE" 644
+}
+
+install_stock_file() {  # SRC DEST MODE
+    cmp -s "$1" "$2" 2>/dev/null && return 0
+    zf_log "installing $2"
+    mkdir -p "$(dirname "$2")"
+    cp "$1" "$2.new" && chmod "$3" "$2.new" && mv "$2.new" "$2"
+}
+
+swap_on() {
+    [ "${SWAP_MB:-0}" -gt 0 ] || return 0
+    sw="$ZF_VAR/swap"
+    if grep -q "^$ZF_HOME/var/swap " "$ZF_SYSROOT/proc/swaps" 2>/dev/null; then return 0; fi
+    want=$((SWAP_MB * 1024 * 1024))
+    have=$(wc -c <"$sw" 2>/dev/null || echo 0)
+    if [ "$have" != "$want" ]; then
+        zf_log "creating ${SWAP_MB} MB swap file"
+        rm -f "$sw"
+        dd if=/dev/zero of="$sw" bs=1M count="$SWAP_MB" 2>/dev/null && chmod 600 "$sw" && mkswap "$sw" >/dev/null ||
+            { zf_log "swap creation failed"; rm -f "$sw"; return 1; }
+    fi
+    swapon "$sw" && zf_log "swap on ($SWAP_MB MB)"
+}
+
+cmd_status() {
+    echo "zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null)   $( [ -e "$ZF_DISABLED" ] && echo "(DISABLED at next boot)")"
+    echo
+    for s in sshd ntp moonraker camera fwrefresh; do printf '  %-10s %s\n' "$s" "$(svc_status "$s")"; done
+    echo
+    echo "listening (tcp):"
+    netstat -tln 2>/dev/null | awk 'NR>2 {print "  " $4}' | sort -u
+    echo
+    echo "memory:"; free 2>/dev/null | sed 's/^/  /'
+    echo
+    fw_status | sed 's/^/  /'
+}
+
+cmd_apikey() {
+    zf_mount_chroot
+    db="$MR_DATA_REL/database/moonraker-sql.db"
+    [ -f "$ZF_SYSROOT$db" ] || zf_die "Moonraker database not found yet (has Moonraker started once?)"
+    case "${1:-show}" in
+        show)   mr_sql "$db" show ;;
+        rotate) mr_sql "$db" rotate && svc_restart moonraker ;;
+        *) usage; exit 2 ;;
+    esac
+}
+
+cmd_tls() {
+    zf_mount_chroot
+    case "${1:-show}" in
+        show)   tls_show ;;
+        regen)  tls_generate && svc_restart moonraker ;;
+        import) [ $# -eq 3 ] || zf_die "usage: zforge tls import CERT KEY"
+                tls_import "$2" "$3" && svc_restart moonraker ;;
+        *) usage; exit 2 ;;
+    esac
+}
+
+svc_args() {
+    if [ $# -gt 0 ]; then echo "$@"; return; fi
+    echo "sshd ntp moonraker"
+    [ "$CAMERA" = on ] && echo camera
+    [ "$FIREWALL_PROFILE" = open ] || echo fwrefresh
+}
+
+case "${1:-help}" in
+    __run)     shift; svc_exec "$1" ;;      # internal: used by the supervisor
+    __fw_rollback) shift; fw_cmd_rollback_timer "$1" ;;   # internal: firewall apply's timer
+    __boot_bg) cmd_boot_bg ;;                            # internal: boot's background part
+    __ota_close) shift; fw_cmd_ota_timer "$1" ;;          # internal: allow-ota's timer
+    update)    shift; zf_cmd_update "$@" ;;
+    uninstall) shift; zf_cmd_uninstall "$@" ;;
+    fw)        shift
+               case "${1:-status}" in
+                   status)    fw_cmd_status ;;
+                   install)   shift; fw_cmd_install "$@" ;;
+                   allow-ota) fw_cmd_allow_ota "${2:-}" ;;
+                   close-ota) fw_cmd_close_ota ;;
+                   *) usage; exit 2 ;;
+               esac ;;
+    boot)      cmd_boot ;;
+    shutdown)  cmd_shutdown ;;
+    status)    cmd_status ;;
+    start)     shift; zf_mount_chroot; for s in $(svc_args "$@"); do [ "$s" = moonraker ] && mr_prepare; svc_start "$s"; done ;;
+    stop)      shift; for s in $(svc_args "$@"); do svc_stop "$s"; done ;;
+    restart)   shift; zf_mount_chroot; for s in $(svc_args "$@"); do svc_restart "$s"; done ;;
+    log)       shift; tail -n 50 "$ZF_LOG/${1:-zforge}.log" ;;
+    apikey)    shift; cmd_apikey "$@" ;;
+    tls)       shift; cmd_tls "$@" ;;
+    firewall)  shift
+               case "${1:-status}" in
+                   status)  fw_status ;;
+                   apply)   fw_cmd_apply "${2:-}" ;;
+                   confirm) fw_cmd_confirm ;;
+                   refresh) zf_mount_chroot; fw_refresh ;;
+                   *) usage; exit 2 ;;
+               esac ;;
+    shell)     zf_mount_chroot; exec chroot "$ZF_CROOT" /bin/sh -l ;;
+    enable)    rm -f "$ZF_DISABLED"; echo "zforge will run at next boot" ;;
+    disable)   : >"$ZF_DISABLED"; echo "zforge will be skipped at next boot (services keep running until then)" ;;
+    version)   cat "$ZF_SHARE/VERSION" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 2 ;;
+esac
