@@ -56,7 +56,8 @@ if [ -x "$ZF/bin/zforge" ]; then
     log "stopping the running zforge"
     "$ZF/bin/zforge" shutdown >>"$LOGF" 2>&1
     STOPPED=1
-    grep -q " $ZF/rootfs/" /proc/mounts && fail "chroot still has mounts under $ZF/rootfs; reboot and retry"
+    grep -q -E " ($ZF/rootfs|/run/zforge/root)[ /]" /proc/mounts &&
+        fail "zforge's chroot is still mounted ($ZF/rootfs, /run/zforge/root); reboot and retry"
 fi
 
 # ---------------------------------------------------------------- install

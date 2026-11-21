@@ -60,7 +60,7 @@ fw_resolve() {
         fi
     done
     [ -n "$names" ] || return 0
-    [ -x "$ZF_ROOTFS/usr/bin/python3" ] || return 0
+    zf_root_ready && [ -x "$ZF_CROOT/usr/bin/python3" ] || return 0
     # shellcheck disable=SC2086
     zf_chroot /usr/bin/python3 -c '
 import socket, sys

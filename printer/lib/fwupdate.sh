@@ -56,7 +56,7 @@ fwu_versions() {
 # fall back to "is Klipper running at all".
 fwu_printing() {
     db="$MR_DATA_REL/database/moonraker-sql.db"
-    if [ -f "$ZF_SYSROOT$db" ] && [ -x "$ZF_ROOTFS/usr/bin/python3" ]; then
+    if [ -f "$ZF_SYSROOT$db" ] && zf_root_ready && [ -x "$ZF_CROOT/usr/bin/python3" ]; then
         st=$(zf_chroot /opt/moonraker-env/bin/python - "$db" "$MOONRAKER_HTTP_PORT" 2>/dev/null <<'EOF'
 import json, sqlite3, sys, urllib.request
 key = sqlite3.connect(sys.argv[1]).execute(

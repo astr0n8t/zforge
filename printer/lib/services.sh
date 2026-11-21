@@ -87,10 +87,10 @@ svc_exec() {
             set --
             for s in $NTP_SERVERS; do set -- "$@" -p "$s"; done
             [ $# -gt 0 ] || { echo "no NTP_SERVERS configured"; sleep 3600; exit 0; }
-            exec chroot "$ZF_ROOTFS" /bin/busybox ntpd -n "$@"
+            exec chroot "$ZF_CROOT" /bin/busybox ntpd -n "$@"
             ;;
         moonraker)
-            exec chroot "$ZF_ROOTFS" /usr/bin/env -i \
+            exec chroot "$ZF_CROOT" /usr/bin/env -i \
                 PATH=/opt/moonraker-env/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8 \
                 nice -n 10 /opt/moonraker-env/bin/python /opt/moonraker/moonraker/moonraker.py \
                 -d "$MR_DATA_REL" -c "$MR_DATA_REL/config/moonraker.conf" -l "$MR_DATA_REL/logs/moonraker.log"

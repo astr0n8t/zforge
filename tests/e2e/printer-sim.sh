@@ -155,6 +155,35 @@ CERT=$ZFX/var/moonraker/certs/moonraker.cert
 KEY=$(P $ZFH/bin/zforge apikey show 2>/dev/null)
 code() { $LAN curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
 
+# Klipper's SDCARD_PRINT_FILE walks the whole virtual_sdcard root (/data) with
+# os.walk(followlinks=True) to find the file (stock and zmod virtual_sdcard.py).
+# zforge must not make that walk loop or crawl: run the same walk, the way
+# Klipper does, on the printer side, with a time limit.
+cat >"$W/sdwalk.py" <<'EOF'
+import os, sys
+n = 0; zf = 0
+for root, dirs, files in os.walk("/data", followlinks=True):
+    n += len(files)
+    if "/.zforge" in root:
+        zf += len(files)
+    if n > 200000:
+        print("RUNAWAY", n); sys.exit(2)
+print("files", n, "zforge", zf)
+EOF
+cp "$W/sdwalk.py" "$R/tmp/sdwalk.py"
+sdwalk() {
+    if [ "$MODE" = stock ]; then   # the printer's own Python, as Klipper uses
+        timeout 60 chroot "$R" /usr/bin/env -i PATH=/bin:/usr/bin /opt/Python-3.7.11/bin/python3.7 /tmp/sdwalk.py
+    else
+        timeout 60 python3 /tmp/sdwalk.py
+    fi >"$W/sdwalk.out" 2>&1
+}
+check "Klipper's SD file walk finishes"        sdwalk
+echo "        info: $(cat "$W/sdwalk.out")"
+check "zforge's chroot is invisible to it"     sh -c "awk '\$1 == \"files\" {ok = (\$4 < 500)} END {exit !ok}' '$W/sdwalk.out'"
+[ "${E2E_STOP_AFTER_SDWALK:-0}" = 1 ] && { echo "(stopping after the SD walk checks)"; exit "$FAILS"; }
+
+
 echo "== SSH (from the LAN)"
 # forget the printer's MAC, so ARP has to work through the firewall
 $LAN ip neigh flush all; ip neigh flush all
@@ -427,7 +456,7 @@ check "stop during boot: nothing starts later" sh -c "! pgrep -f '[m]oonraker.py
 P /etc/init.d/S35zforge stop
 pgrep -a -f '[m]oonraker.py|[d]ropbear' | sed 's/^/        still running: /'
 check "services stopped"                       sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear' >/dev/null"
-check "chroot mounts gone"                     sh -c "! grep -q '/data/.zforge/rootfs/' /proc/mounts"
+check "chroot mounts gone"                     sh -c "! grep -q -E '/data/.zforge/rootfs|/run/zforge/root' /proc/mounts"
 : >"$ZFX/disabled"
 P /etc/init.d/S35zforge start >/dev/null
 sleep 3

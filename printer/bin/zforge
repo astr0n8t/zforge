@@ -201,7 +201,7 @@ case "${1:-help}" in
                    refresh) zf_mount_chroot; fw_refresh ;;
                    *) usage; exit 2 ;;
                esac ;;
-    shell)     zf_mount_chroot; exec chroot "$ZF_ROOTFS" /bin/sh -l ;;
+    shell)     zf_mount_chroot; exec chroot "$ZF_CROOT" /bin/sh -l ;;
     enable)    rm -f "$ZF_DISABLED"; echo "zforge will run at next boot" ;;
     disable)   : >"$ZF_DISABLED"; echo "zforge will be skipped at next boot (services keep running until then)" ;;
     version)   cat "$ZF_SHARE/VERSION" ;;

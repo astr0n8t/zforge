@@ -2,8 +2,8 @@
 #
 # Data path (inside and outside the chroot): /data/.zforge/var/moonraker
 #   config/moonraker.conf    generated from share/moonraker.conf.in on every start
-#   config/stock -> /opt/config   stock Klipper config, editable from Moonraker clients
-#   gcodes -> /data          the stock virtual_sdcard path, also listed by the touchscreen
+#   config/stock = /opt/config   stock Klipper config (bind mount, chroot only)
+#   gcodes = /data           the stock virtual_sdcard path (bind mount, chroot only)
 #   certs/moonraker.{cert,key}    HTTPS certificate (see tls.sh)
 #   database/, logs/, comms/
 # User overrides: /data/.zforge/etc/moonraker.user.conf (included last).
@@ -11,8 +11,8 @@
 mr_prepare() {
     for d in config certs database logs comms; do mkdir -p "$MR_DATA/$d"; done
     chmod 700 "$MR_DATA/certs" "$MR_DATA/database"
-    [ -L "$MR_DATA/gcodes" ] || { rm -rf "$MR_DATA/gcodes"; ln -s /data "$MR_DATA/gcodes"; }
-    [ -L "$MR_DATA/config/stock" ] || ln -s /opt/config "$MR_DATA/config/stock"
+    # gcodes (-> /data) and config/stock (-> /opt/config) are bind mounts made
+    # by zf_mount_chroot, inside the chroot only (see common.sh)
 
     user="$ZF_ETC/moonraker.user.conf"
     [ -f "$user" ] || cat >"$user" <<'EOF'
