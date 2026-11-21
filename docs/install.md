@@ -93,9 +93,25 @@ See [firmware-updates.md](firmware-updates.md). In short: `zforge fw install <pa
   - It reboots when done (`--no-reboot` to skip). On failure it doesn't reboot, and restarts the installed version.
 - **By USB:** same as a first install. Your configuration, SSH keys, certificate and Moonraker data in `/data/.zforge/etc` and `/data/.zforge/var` are kept.
 
+## Uninstalling
+
+Over SSH, run `zforge uninstall --yes`. It:
+- stops zforge and removes its firewall rules, its two stock files and `/data/.zforge`;
+- re-enables IPv6;
+- keeps your config, SSH keys, certificate and Moonraker database in `/data/zforge-uninstalled-<date>/`.
+
+Without SSH, use the `rescue-uninstall` stick (below).
+
 ## Rescue sticks
 
-Each rescue stick holds just the one `flashforge_init.sh` from `dist/rescue-*/`:
-- **`rescue-firewall-open`:** sets the firewall to `open` and reboots. Use it if a firewall setting locked you out.
-- **`rescue-disable`:** zforge is skipped at boot, and stock firmware runs untouched. Re-run the installer stick to enable it again.
-- **`rescue-uninstall`:** removes the hook and `/data/.zforge`.
+Each rescue stick holds a single `flashforge_init.sh` at the root of a FAT32 stick. Release downloads name them `rescue-<name>-flashforge_init.sh`; rename the one you need to `flashforge_init.sh`. In a local build they're in `dist/rescue-<name>/`. They run before anything else at boot, so they work even without Wi-Fi or SSH.
+
+| Stick | What it does |
+|---|---|
+| `rescue-firewall-open` | sets the firewall to `open` and reboots. Use it if a firewall setting locked you out |
+| `rescue-disable` | zforge is skipped at boot and the stock firmware runs untouched. Re-run the installer stick to enable it again |
+| `rescue-uninstall` | removes the boot hook, the PATH file and `/data/.zforge` |
+| `rescue-mcu-diag` | for a stock MCU update that hangs: logs to the stick what the flasher is doing, and changes nothing |
+| `rescue-skip-mcu-update` | for a stock MCU update that loops: removes the `Update` flag so the next boot skips the flash (only when the boards already have that firmware) |
+
+Stock MCU updates need a **cold power-up** (off, 10 seconds, on), not a reboot. See [firmware-updates.md](firmware-updates.md).

@@ -293,12 +293,14 @@ e2e: 127 checks in stock mode (with the real 5.2.0 package), 79 in host mode.
 
 e2e now runs Klipper's walk with the printer's own Python (129 stock, 81 host checks).
 
-### Phase 4: Mainline Klipper (opt-in)
-- Mainline Klipper in the chroot, the ported Flashforge extras, MCU build and flash, and a tested path back to stock.
-- **Exit criteria:** with mainline Klipper running, the stock screen can print, level and run the load-cell probe, and switching back to stock fully restores the stock MCU firmware.
+### Phase 4: Mainline Klipper — dropped
+Not pursued, by the owner's choice: zforge runs the stock Klipper. zmod's two tuning fixes in stock Klipper are kept on the printer (`TRSYNC_TIMEOUT`, `LOOKAHEAD_FLUSH_TIME`; see [`docs/stock/klipper.md`](docs/stock/klipper.md)).
 
-### Phase 5: Polish
-- `zforge update`, an optional web UI (Fluidd, which is static files served by Moonraker), docs and a release workflow.
+### Phase 5: Polish — done (0.5.0)
+- **CI/CD:** `.github/workflows/build-test.yml` lints, builds under qemu (cached), packages, and runs the firewall test and the host-mode e2e. `release.yml` publishes a release on a `v*` tag. See [`docs/development.md`](docs/development.md).
+- **`zforge update`** (0.4.0). From 0.5.0, URL downloads follow redirects, with the firewall opening for each host in turn (GitHub release links redirect to a separate download host).
+- **`zforge uninstall`:** removes the firewall rules live, re-enables IPv6, removes the files, and keeps config, keys and the certificate.
+- Docs: README, development guide.
 
 ## Risks and open questions
 

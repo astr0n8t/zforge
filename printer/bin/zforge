@@ -14,6 +14,7 @@ ZF_LIBDIR=${ZF_LIBDIR:-$(cd "$(dirname "$ZF_SELF")/../lib" && pwd)}
 . "$ZF_LIBDIR/tls.sh"
 . "$ZF_LIBDIR/fwupdate.sh"
 . "$ZF_LIBDIR/selfupdate.sh"
+. "$ZF_LIBDIR/uninstall.sh"
 
 zf_load_config
 mkdir -p "$ZF_LOG" "$ZF_RUN" 2>/dev/null
@@ -42,6 +43,7 @@ zforge $(cat "$ZF_SHARE/VERSION" 2>/dev/null || echo "?")
   zforge update PKG|URL [--force] [--no-reboot]
                                    update zforge itself (Adventurer5MPro-zforge-VER.tgz);
                                    keeps config, keys, certificate; reboots when done
+  zforge uninstall [--yes]         remove zforge (keeps a copy of config, keys, certificate)
   zforge shell                     enter the zforge chroot (Alpine)
   zforge enable|disable            run / skip zforge at next boot
   zforge version
@@ -176,6 +178,7 @@ case "${1:-help}" in
     __boot_bg) cmd_boot_bg ;;                            # internal: boot's background part
     __ota_close) shift; fw_cmd_ota_timer "$1" ;;          # internal: allow-ota's timer
     update)    shift; zf_cmd_update "$@" ;;
+    uninstall) shift; zf_cmd_uninstall "$@" ;;
     fw)        shift
                case "${1:-status}" in
                    status)    fw_cmd_status ;;

@@ -36,6 +36,10 @@ The installer's own output goes to `/data/.zforge/var/log/fw-install.log`.
 
 **Side effects:** every stock update resets the stock root password in `/etc/shadow`. zforge's SSH uses keys only, so that doesn't matter.
 
+**MCU firmware:** stock packages carry the mainboard and toolhead MCU firmware (`control-<ver>`).
+- **If it's identical to what's installed** (true for 5.2.0 over 3.2.x), `fw install` skips the redundant flash, and the normal reboot is safe.
+- **If it's new,** `fw install` doesn't reboot. It asks you to **power-cycle**, because the toolhead MCU only takes a flash after a cold power-up; a warm reboot makes the stock flash step fail and loop.
+
 ## 2. From the touchscreen (OTA)
 
 In the `lan` and `strict` firewall profiles, the stock firmware has no internet, so the touchscreen can't find updates. Open a temporary window:

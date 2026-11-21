@@ -1,0 +1,106 @@
+name: build & test
+
+# Lint, build the armv7 userland (qemu-user), package, and run the tests that
+# need no printer data: the firewall namespace test and the e2e suite in host
+# mode. The e2e "stock mode" needs a backup of the printer's own rootfs
+# (private: Wi-Fi config etc.), so it runs locally only (docs/development.md).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+    outputs:
+      version:
+        description: ZFORGE_VERSION from build/versions.env
+        value: ${{ jobs.build-test.outputs.version }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --version | head -2
+          # every shell script in the repo (printer side runs on BusyBox ash / bash)
+          git ls-files -z | xargs -0 grep -lZ -E '^#!/bin/sh' | xargs -0 shellcheck -s sh -S warning -x
+          shellcheck -s sh -S warning -x printer/lib/*.sh
+
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-user-static binfmt-support openssh-client \
+            netcat-openbsd iproute2 iputils-ping curl net-tools openssl
+          sudo tools/dev/qemu-binfmt.sh
+          # the build chroots into armv7 code: the registration needs the F (fix-binary) flag
+          grep -q '^flags:.*F' /proc/sys/fs/binfmt_misc/qemu-arm || { cat /proc/sys/fs/binfmt_misc/qemu-arm; exit 1; }
+
+      - name: version
+        id: ver
+        run: |
+          . build/versions.env
+          echo "version=$ZFORGE_VERSION" >>"$GITHUB_OUTPUT"
+          # rootfs cache key: the build inputs, not the zforge version
+          echo "rootfs=$(grep -v '^ZFORGE_VERSION=' build/versions.env | cat - build/rootfs-inside.sh build/build-rootfs.sh | sha256sum | cut -c1-16)" >>"$GITHUB_OUTPUT"
+
+      - name: rootfs cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            dist/zforge-rootfs-armv7.tar.gz
+            dist/dropbearmulti
+            dist/sftp-server
+            dist/SHA256SUMS
+          key: rootfs-${{ steps.ver.outputs.rootfs }}
+
+      - name: build rootfs (qemu, ~20 min)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p dist
+          sudo build/build-rootfs.sh "$PWD/dist"
+          sudo chown -R "$(id -u):$(id -g)" dist
+          ls -la dist
+
+      - name: package
+        run: |
+          build/package.sh
+          ls -la dist
+
+      - name: test - firewall (network namespaces)
+        run: sudo unshare -n -m sh tests/firewall/fib-rules-netns.sh
+
+      - name: test - e2e (host mode)
+        run: |
+          sudo unshare -m -n -p -f --mount-proc \
+            sh tests/e2e/printer-sim.sh "dist/Adventurer5MPro-zforge-${{ steps.ver.outputs.version }}.tgz"
+
+      - name: e2e logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: work/e2e
+          if-no-files-found: ignore
+
+      - name: upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: zforge-${{ steps.ver.outputs.version }}
+          path: |
+            dist/Adventurer5MPro-zforge-${{ steps.ver.outputs.version }}.tgz
+            dist/rescue-*/flashforge_init.sh
+          if-no-files-found: error

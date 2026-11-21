@@ -1,38 +1,49 @@
 # zforge
 
-zforge is a minimal mod for the Flashforge Adventurer 5M Pro. It adds four things:
+A minimal mod for the **Flashforge Adventurer 5M Pro** that keeps the stock firmware (touchscreen, stock Klipper, stock updates) in charge.
 
-- root SSH;
-- current Moonraker, so stock OrcaSlicer can upload and print;
-- stock firmware updates over SSH, while the stock touchscreen keeps working;
-- a strict firewall that you control.
+It adds:
+- **Root SSH** with key-only login, including `scp` and `sftp`.
+- **Current Moonraker over HTTPS only,** with an API key. Stock OrcaSlicer uploads and prints with host type *Octo/Klipper* at `https://PRINTER:7130`.
+- **A firewall you control.** By default the stock firmware gets no internet, and only your LAN reaches the printer. Changes roll back unless you confirm them.
+- **Stock firmware updates over SSH,** with checks first and your Wi-Fi config preserved: `zforge fw install`.
+- **A low-overhead camera stream:** the stock mjpg-streamer at `http://PRINTER:8080/?action=stream`.
+- **Self-updates:** `zforge update <file|URL>`.
 
-See [PLAN.md](PLAN.md) for the design and phases.
+On the stock system it puts two small files, `/etc/init.d/S35zforge` and `/etc/profile.d/zforge.sh`. Everything else lives in `/data/.zforge`, and stock firmware updates leave all of it alone.
+
+## Using it
+
+- **Install, migrate from zmod, set up Orca:** [docs/install.md](docs/install.md)
+- **Firewall and camera:** [docs/firewall.md](docs/firewall.md)
+- **Stock firmware updates:** [docs/firmware-updates.md](docs/firmware-updates.md)
+- **On the printer:** `zforge help` lists every command. `zforge status` shows the services, ports, memory and firewall.
+
+Rescue USB sticks work without SSH: disable zforge, uninstall it, open the firewall, or deal with a stuck MCU update. See the end of [install.md](docs/install.md).
 
 ## Status
 
-- **Phase 0 (discovery): done.** See [`docs/device-notes.md`](docs/device-notes.md) and [`docs/stock/`](docs/stock/).
-- **Phase 1 (SSH, HTTPS Moonraker on stock Klipper): built and tested in simulation.** Not yet run successfully on a printer.
-  - The simulation is an x86 host running the real armv7 binaries under qemu.
-  - With `STOCK_ROOT=<mounted stock rootfs backup>`, the printer side runs inside the printer's own BusyBox/bash userland.
-  - On-printer checks still to do: see "Phase 1: on-printer checklist" in [`PLAN.md`](PLAN.md).
+**0.5.0.** Phases 0–3 of [PLAN.md](PLAN.md) are done and in use on a printer:
+- Phase 0: discovery;
+- Phase 1: SSH and HTTPS Moonraker;
+- Phase 2: firewall and camera;
+- Phase 3: firmware updates.
+
+Phase 5, CI/CD and polish, is also done. Phase 4 (mainline Klipper) is dropped by choice: zforge runs the stock Klipper.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `build/` | `build-rootfs.sh` (Alpine armv7 chroot with Moonraker, plus static dropbear and sftp-server) and `package.sh` (makes `dist/Adventurer5MPro-zforge-<ver>.tgz`) |
-| `printer/` | everything that ends up in `/data/.zforge`: the `zforge` CLI, libs, the boot hook, config templates |
-| `installer/` | `flashforge_init.sh`, run by the stock USB updater, or over SSH for upgrades |
-| `rescue/` | USB sticks that disable or uninstall zforge without SSH |
-| `tools/probe/`, `tools/install/` | PC-side helpers (Phase 0 probe and backup; SSH upgrade) |
-| `tests/` | `e2e/printer-sim.sh` (full install, boot and checks in namespaces), `firewall/` |
-| `docs/` | [`install.md`](docs/install.md), device notes, stock firmware analysis |
+| `build/` | `build-rootfs.sh` (Alpine armv7 chroot with Moonraker, plus static dropbear and sftp-server), `package.sh`, pinned `versions.env` |
+| `printer/` | what ends up in `/data/.zforge`: the `zforge` CLI and its libs, the boot hook, config templates |
+| `installer/` | `flashforge_init.sh`: the stock USB updater runs it; it's also used over SSH for upgrades |
+| `rescue/` | USB sticks: disable, uninstall, firewall-open, mcu-diag, skip-mcu-update |
+| `tools/` | PC-side helpers: `probe/` (read-only probe, partition backup, zmod-remnants inventory), `install/run-install.sh`, `dev/` |
+| `tests/` | `e2e/printer-sim.sh` (whole package on a simulated printer), `firewall/` |
+| `docs/` | user guides, [development.md](docs/development.md), [device-notes.md](docs/device-notes.md), and `stock/` (analysis of the stock firmware, update packages and Klipper) |
+| `.github/workflows/` | CI (`build-test.yml`) and releases (`release.yml`) |
 
-## Build and test
+## Development
 
-```sh
-sudo build/build-rootfs.sh        # needs qemu-user-static + binfmt on x86 (about 20 min)
-build/package.sh                  # dist/Adventurer5MPro-zforge-<ver>.tgz
-sudo [STOCK_ROOT=/mnt/stock-rootfs] unshare -m -n -p -f --mount-proc sh tests/e2e/printer-sim.sh dist/Adventurer5MPro-zforge-*.tgz
-```
+See [docs/development.md](docs/development.md) for building under qemu, the test suites (host and stock-rootfs modes), CI and the release process.

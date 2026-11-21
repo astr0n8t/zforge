@@ -441,7 +441,22 @@ check "update:   staging dir removed"          [ ! -e "$R/data/.zforge-update" ]
 P /etc/init.d/S35zforge start >/dev/null 2>&1        # the "reboot"
 check "update:   ssh works afterwards"         wait_for sh -c "$LAN $SSHC root@10.9.0.1 true"
 rm -f "$R/tmp/zf-reboot-requested"
-check "update: from a URL (through the firewall)" zup "http://203.0.113.6:8000/Adventurer5MPro-zforge-$zver.tgz" --no-reboot
+cat >"$W/redirect.py" <<'EOF'
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(302)
+        self.send_header("Location", "http://203.0.113.6:8000" + self.path)
+        self.end_headers()
+    def log_message(self, *a): pass
+http.server.HTTPServer(("203.0.113.5", 8080), H).serve_forever()
+EOF
+$LAN python3 "$W/redirect.py" >/dev/null 2>&1 &
+sleep 2
+check "update: from a URL that redirects (2 hosts)" zup "http://203.0.113.5:8080/Adventurer5MPro-zforge-$zver.tgz" --no-reboot
+check "update:   followed the redirect"         grep -q "redirected to http://203.0.113.6:8000" "$ZFX/var/log/zforge.log"
+check "update:   both hosts blocked again"      sh -c "! ip rule | grep -q '^198:'"
+P /etc/init.d/S35zforge start >/dev/null 2>&1
 check "update:   no reboot with --no-reboot"   [ ! -e "$R/tmp/zf-reboot-requested" ]
 check "update:   download host blocked again"  notc reach nc -w2 203.0.113.6 8000
 P /etc/init.d/S35zforge start >/dev/null 2>&1
@@ -462,6 +477,19 @@ P /etc/init.d/S35zforge start >/dev/null
 sleep 3
 check "disabled: nothing starts"               sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear' >/dev/null"
 
+echo "== uninstall"
+rm -f "$ZFX/disabled"
+P /etc/init.d/S35zforge start >/dev/null 2>&1
+wait_for() { i=0; while [ $i -lt 40 ]; do "$@" && return 0; sleep 2; i=$((i + 1)); done; return 1; }
+wait_for sh -c "ip rule | grep -q '^290:'" || wait_for sh -c "ip rule | grep -q '^10:'"
+check "uninstall: refuses without --yes"       sh -c "! chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $ZFH/bin/zforge uninstall >/dev/null"
+check "uninstall --yes"                         sh -c "chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin:/sbin:/usr/sbin $( [ "$MODE" = host ] && echo "ZF_IP=$SHIM/ip" ) $ZFH/bin/zforge uninstall --yes >'$W/uninstall.out' 2>&1"
+check "uninstall: /data/.zforge gone"           [ ! -e "$ZFX" ]
+check "uninstall: hook and PATH file gone"      sh -c "[ ! -e '$R/etc/init.d/S35zforge' ] && [ ! -e '$R/etc/profile.d/zforge.sh' ]"
+check "uninstall: keys and cert kept"           sh -c "ls $R/data/zforge-uninstalled-*/etc/ssh/authorized_keys $R/data/zforge-uninstalled-*/moonraker-certs/moonraker.cert >/dev/null"
+check "uninstall: firewall rules gone"          sh -c "! ip rule | grep -q -E '^(10|20|30|100|198|199|200|290):' && ip rule | grep -q '^0:.*lookup local'"
+check "uninstall: no zforge mounts left"        sh -c "! grep -q -E '/data/.zforge|/run/zforge' /proc/mounts"
+check "uninstall: nothing running"              sh -c "! pgrep -f '[m]oonraker.py|[d]ropbear|[m]jpg_streamer' >/dev/null"
 kill "$RELAY" 2>/dev/null
 echo
 if [ "$FAILS" = 0 ]; then echo "ALL PASSED ($MODE mode)"; else

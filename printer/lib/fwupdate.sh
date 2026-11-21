@@ -81,28 +81,56 @@ EOF
 
 # ---------------------------------------------------------------- download
 
-# Temporarily allow outbound to a host's addresses (pref 198), run "$@", remove.
-fwu_with_host_allowed() {
-    host=$1; shift
-    ips=$(fw_resolve "$host")
-    [ -n "$ips" ] || { zf_log "fw: cannot resolve $host"; return 1; }
+# Downloads open the firewall (pref 198) only for the hosts the download
+# actually uses, and only while it runs. Redirects are followed one hop at a
+# time, each new host allowed before it's contacted (e.g. GitHub release
+# links redirect to a separate download host).
+fwu_allow_host() {
+    ips=$(fw_resolve "$1")
+    [ -n "$ips" ] || { zf_log "fw: cannot resolve $1"; return 1; }
     fw_lock || return 1
     for ip in $ips; do zf_ip rule add pref "$FWU_P_TEMP" to "$ip" lookup main 2>/dev/null; done
     fw_unlock
-    "$@"; rc=$?
-    fw_lock && { while zf_ip rule del pref "$FWU_P_TEMP" 2>/dev/null; do :; done; fw_unlock; }
-    return $rc
+}
+fwu_close_temp() {
+    fw_lock 0 && { while zf_ip rule del pref "$FWU_P_TEMP" 2>/dev/null; do :; done; fw_unlock; }
 }
 
-fwu_download() {  # fwu_download URL DEST (DEST: path on the printer)
-    case "$1" in http://*|https://*) ;; *) zf_die "not a URL: $1" ;; esac
-    host=$(echo "$1" | sed -E 's#^[a-z]+://([^/:]+).*#\1#')
-    zf_log "fw: downloading $1"
-    fwu_with_host_allowed "$host" zf_chroot /usr/bin/python3 -c '
-import shutil, sys, urllib.request
-with urllib.request.urlopen(sys.argv[1], timeout=60) as r, open(sys.argv[2], "wb") as f:
-    shutil.copyfileobj(r, f)
-' "$1" "$2"
+fwu_download() {  # fwu_download URL DEST (DEST: path on the printer, as the chroot sees it)
+    url=$1; hops=0; rc=1
+    zf_log "fw: downloading $url"
+    while [ $hops -le 5 ]; do
+        case "$url" in http://*|https://*) ;; *) zf_log "fw: refusing non-HTTP URL $url"; break ;; esac
+        host=$(echo "$url" | sed -E 's#^[a-z]+://([^/:?#]+).*#\1#')
+        fwu_allow_host "$host" || break
+        out=$(zf_chroot /usr/bin/python3 -c '
+import shutil, sys, urllib.error, urllib.parse, urllib.request
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+opener = urllib.request.build_opener(NoRedirect)
+try:
+    with opener.open(sys.argv[1], timeout=60) as r, open(sys.argv[2], "wb") as f:
+        shutil.copyfileobj(r, f)
+    print("OK")
+except urllib.error.HTTPError as e:
+    loc = e.headers.get("Location")
+    if 300 <= e.code < 400 and loc:
+        print("REDIRECT " + urllib.parse.urljoin(sys.argv[1], loc))
+    else:
+        print("ERROR HTTP %d" % e.code)
+except Exception as e:
+    print("ERROR %s" % e)
+' "$url" "$2" 2>&1 | tail -n 1)
+        case "$out" in
+            OK) rc=0; break ;;
+            "REDIRECT "*) url=${out#REDIRECT }; hops=$((hops + 1)); zf_log "fw: redirected to $url" ;;
+            *) zf_log "fw: download failed: $out"; break ;;
+        esac
+    done
+    [ $hops -le 5 ] || zf_log "fw: too many redirects"
+    fwu_close_temp
+    return $rc
 }
 
 # ---------------------------------------------------------------- install

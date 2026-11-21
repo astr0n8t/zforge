@@ -1,0 +1,63 @@
+name: release
+
+# Push a tag vX.Y.Z (matching ZFORGE_VERSION in build/versions.env) to build,
+# test and publish a GitHub release with the package, the rescue sticks and
+# SHA256SUMS. See docs/development.md.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    uses: ./.github/workflows/build-test.yml
+
+  release:
+    needs: build-test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: tag matches ZFORGE_VERSION
+        run: |
+          want="v${{ needs.build-test.outputs.version }}"
+          [ "$GITHUB_REF_NAME" = "$want" ] ||
+            { echo "tag $GITHUB_REF_NAME doesn't match build/versions.env ($want)"; exit 1; }
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: zforge-${{ needs.build-test.outputs.version }}
+          path: artifact
+
+      - name: assemble release files
+        id: files
+        run: |
+          v=${{ needs.build-test.outputs.version }}
+          mkdir -p release
+          cp "artifact/Adventurer5MPro-zforge-$v.tgz" release/
+          # each rescue stick is a flashforge_init.sh; give them distinct names
+          for d in artifact/rescue-*; do
+              cp "$d/flashforge_init.sh" "release/$(basename "$d")-flashforge_init.sh"
+          done
+          ( cd release && sha256sum * >SHA256SUMS && cat SHA256SUMS )
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${{ needs.build-test.outputs.version }}
+          cat >notes.md <<EOF
+          zforge $v for the Flashforge Adventurer 5M Pro.
+
+          - Install: docs/install.md (USB first install; later \`zforge update <url-of-the-.tgz>\`
+            on the printer, or tools/install/run-install.sh from a PC).
+          - Rescue sticks: rename one \`rescue-*-flashforge_init.sh\` to \`flashforge_init.sh\`,
+            alone on a FAT32 stick.
+          - Verify: \`sha256sum -c SHA256SUMS\`.
+          EOF
+          gh release create "$GITHUB_REF_NAME" release/* --title "zforge $v" --notes-file notes.md --verify-tag
