@@ -21,7 +21,7 @@ That covers the goal: the stock firmware can't phone home, and only the hosts yo
 | SSH | TCP 22 | from `SSH_ALLOW` |
 | Moonraker HTTPS | TCP 7130 | from `MOONRAKER_ALLOW` |
 | Camera | TCP 8080 | from `CAMERA_ALLOW`, only when `CAMERA=on` |
-| Stock LAN API | TCP 8898/8899, UDP 48899/19000 | only when `STOCK_LAN_API=on` |
+| Stock LAN API | TCP 8898/8899, UDP 48899/19000 | only when `STOCK_LAN_API=on` (from the network; zforge's own use on the printer, which shows Orca's prints on the screen, isn't affected) |
 
 **Always on, in every profile:**
 - Moonraker's plain-HTTP port 7125 is blocked from the network.

@@ -22,8 +22,16 @@ mr_prepare() {
 #[spoolman]
 #server: https://spoolman.example.lan
 EOF
+    # SCREEN_PRINT=on: Moonraker's prints start through the touchscreen app,
+    # so the screen shows them (share/zforge_screen.py)
+    screen="# SCREEN_PRINT=off in zforge.conf: prints start through Klipper directly"
+    if [ "$SCREEN_PRINT" = on ] && zf_root_ready &&
+        cp "$ZF_SHARE/zforge_screen.py" "$ZF_CROOT/opt/moonraker/moonraker/components/zforge_screen.py"; then
+        screen="[zforge_screen]"
+    fi
     for f in moonraker moonraker.enforced; do
         sed -e "s|@HTTP_PORT@|$MOONRAKER_HTTP_PORT|g" \
+            -e "s|@SCREEN_PRINT@|$screen|" \
             -e "s|@HTTPS_PORT@|$MOONRAKER_HTTPS_PORT|g" \
             -e "s|@USER_CONF@|$ZF_HOME/etc/moonraker.user.conf|g" \
             "$ZF_SHARE/$f.conf.in" >"$MR_DATA/config/$f.conf.new" &&

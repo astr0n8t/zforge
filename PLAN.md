@@ -301,6 +301,7 @@ Not pursued, by the owner's choice: zforge runs the stock Klipper. zmod's two tu
 - **`zforge update`** (0.4.0). From 0.5.0, URL downloads follow redirects, with the firewall opening for each host in turn (GitHub release links redirect to a separate download host).
 - **`zforge uninstall`:** removes the firewall rules live, re-enables IPv6, removes the files, and keeps config, keys and the certificate.
 - Docs: README, development guide.
+- **Prints show on the touchscreen:** the `zforge_screen` Moonraker component starts Moonraker's prints through the stock touchscreen app (`~M23 0:/user/<file>` on loopback port 8899, as zmod and FlashPrint do), so the screen shows and controls them. It falls back to Klipper's `SDCARD_PRINT_FILE` when the app isn't listening. `SCREEN_PRINT=off` turns it off. GPLv3 `LICENSE` added.
 
 ## Risks and open questions
 

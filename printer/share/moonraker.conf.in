@@ -15,6 +15,8 @@ enable_object_processing: False
 
 [history]
 
+@SCREEN_PRINT@
+
 [include @USER_CONF@]
 
 # Enforced settings (ports, auth). Included last, so they override the user file.

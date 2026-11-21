@@ -67,6 +67,13 @@ zforge tls show        # certificate details and its SHA-256 fingerprint
    - **Windows / macOS:** add `moonraker.cert` (from `zforge tls show`, or `scp root@PRINTER:/data/.zforge/var/moonraker/certs/moonraker.cert .`) to the system certificate store or Keychain as trusted.
    - **Linux:** point Orca's "HTTPS CA file" field at `moonraker.cert`.
 
+**Prints from Orca show on the touchscreen.** zforge hands each print Moonraker starts to the stock touchscreen app, the way FlashPrint does. The screen then shows its progress and controls, as for a print started there.
+- **If the screen refuses** the print, for example because it's showing a "print finished" dialog or is already printing, Orca gets an error saying so. Clear the dialog and send the print again.
+- **If the touchscreen app isn't running,** the print starts through Klipper directly.
+- `SCREEN_PRINT=off` in `zforge.conf` always starts prints through Klipper directly, and the screen shows nothing. Run `zforge restart moonraker` after changing it.
+
+This uses the app's local port on the printer itself, so it works with `STOCK_LAN_API=off`.
+
 Plain HTTP on port 7125 exists only on the printer itself; the firewall blocks it from the network. Requests without the API key get `401`.
 
 ## Firewall and camera

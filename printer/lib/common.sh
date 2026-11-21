@@ -61,6 +61,8 @@ zf_defaults() {
     CAMERA_FPS=15
     CAMERA_PORT=8080
     CAMERA_ALLOW=""
+    # Moonraker prints start through the touchscreen app, so the screen shows them
+    SCREEN_PRINT=on
 }
 
 zf_load_config() {

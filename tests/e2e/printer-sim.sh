@@ -227,12 +227,31 @@ echo "G28" >"$W/pc/orca.gcode"
 check "upload via /api/files/local"            sh -c "$LAN curl -sk -f --max-time 60 -H 'X-Api-Key: $KEY' -F file=@$W/pc/orca.gcode https://10.9.0.1:7130/api/files/local >/dev/null && [ -f $R/data/orca.gcode ]"
 check "file list shows uploads, hides .zforge" sh -c "$LAN curl -sk -H 'X-Api-Key: $KEY' https://10.9.0.1:7130/server/files/list | grep -q orca.gcode && ! $LAN curl -sk -H 'X-Api-Key: $KEY' https://10.9.0.1:7130/server/files/list | grep -q '.zforge'"
 
+echo "== prints start through the touchscreen app"
+# Moonraker hands prints to firmwareExe (~M23 on 127.0.0.1:8899), so the stock
+# screen shows them. Stand in for firmwareExe with tests/e2e/fake-screen.py.
+start() { $LAN curl -sk -o "$W/start.out" -w '%{http_code}' --max-time 30 -X POST -H "X-Api-Key: $KEY" "https://10.9.0.1:7130/printer/print/start?filename=$1"; }
+check "zforge_screen component loaded"         grep -q "zforge_screen: prints start through the touchscreen app" "$ZFX/var/moonraker/logs/moonraker.log"
+python3 "$TOP/tests/e2e/fake-screen.py" "$W/screen.req" 'CMD M23 Received.\nok\n' & fsp=$!; sleep 1
+rc=$(start "sub%20dir/orca%20%C3%BC.gcode"); wait $fsp
+check "print start accepted by the screen"     [ "$rc" = 200 ]
+check "screen got ~M23 0:/user/<file>"         sh -c "printf '~M23 0:/user/sub dir/orca \303\274.gcode\r\n' | cmp -s - '$W/screen.req'"
+python3 "$TOP/tests/e2e/fake-screen.py" "$W/screen.req" 'BUSY\n' & fsp=$!; sleep 1
+rc=$(start orca.gcode); wait $fsp
+check "busy screen -> 409, no second start"    sh -c "[ '$rc' = 409 ] && grep -q 'refused the print' '$W/start.out'"
+rc=$(start orca.gcode)
+check "no screen app -> falls back to Klipper" grep -q "touchscreen app unreachable" "$ZFX/var/moonraker/logs/moonraker.log"
+check "[zforge_screen] in moonraker.conf"       grep -q '^\[zforge_screen\]$' "$ZFX/var/moonraker/config/moonraker.conf"
+
 echo "== key rotation and certificate tools"
+echo "SCREEN_PRINT=off" >>"$ZFX/etc/zforge.conf"   # applies at the restart below
 P $ZFH/bin/zforge apikey rotate >"$W/newkey" 2>/dev/null
 NEW=$(tail -n 1 "$W/newkey")
 i=0; while [ $i -lt 60 ]; do [ "$(code -k -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ] && break; sleep 3; i=$((i + 1)); done
 check "rotated key works"                      [ "$(code -k -H "X-Api-Key: $NEW" https://10.9.0.1:7130/server/info)" = 200 ]
 check "old key rejected"                       [ "$(code -k -H "X-Api-Key: $KEY" https://10.9.0.1:7130/server/info)" = 401 ]
+check "SCREEN_PRINT=off -> section left out"   sh -c "! grep -q '^\[zforge_screen\]' '$ZFX/var/moonraker/config/moonraker.conf'"
+sed -i '/^SCREEN_PRINT=off$/d' "$ZFX/etc/zforge.conf"
 check "tls show prints a SHA-256 fingerprint"  sh -c "chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin $ZFH/bin/zforge tls show | grep -qi 'sha256 fingerprint'"
 openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout "$R/tmp/other.key" -out "$R/tmp/other.crt" -subj /CN=x -days 1 >/dev/null 2>&1
 check "tls import rejects a mismatched key"    sh -c "! chroot ${R:-/} /usr/bin/env -i PATH=/bin:/usr/bin $ZFH/bin/zforge tls import $ZFH/var/moonraker/certs/moonraker.cert /tmp/other.key"

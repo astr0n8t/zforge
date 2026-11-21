@@ -73,4 +73,4 @@ sudo STOCK_ROOT=/mnt/stock-rootfs FW_PKG_REAL=Adventurer5MPro-5.2.0-….tgz \
 3. Commit, then tag: `git tag v<ver> && git push origin v<ver>`. CI publishes the release.
 4. On the printer: `zforge update https://github.com/<owner>/<repo>/releases/download/v<ver>/Adventurer5MPro-zforge-<ver>.tgz`.
    - The download follows GitHub's redirect to its download host, and the firewall opens only those hosts, only for the download.
-   - A private repository's release links need authentication: download on the PC and use `tools/install/run-install.sh`, or copy the file over and run `zforge update /data/<file>`.
+   - The repository is public, so release links work directly. For a private fork, download on the PC and use `tools/install/run-install.sh`, or copy the file over and run `zforge update /data/<file>`.

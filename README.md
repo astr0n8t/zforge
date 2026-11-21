@@ -9,6 +9,7 @@ It adds:
 - **Stock firmware updates over SSH,** with checks first and your Wi-Fi config preserved: `zforge fw install`.
 - **A low-overhead camera stream:** the stock mjpg-streamer at `http://PRINTER:8080/?action=stream`.
 - **Self-updates:** `zforge update <file|URL>`.
+- **Prints from Orca show on the touchscreen,** just as if they had been started there.
 
 On the stock system it puts two small files, `/etc/init.d/S35zforge` and `/etc/profile.d/zforge.sh`. Everything else lives in `/data/.zforge`, and stock firmware updates leave all of it alone.
 
@@ -47,3 +48,7 @@ Phase 5, CI/CD and polish, is also done. Phase 4 (mainline Klipper) is dropped b
 ## Development
 
 See [docs/development.md](docs/development.md) for building under qemu, the test suites (host and stock-rootfs modes), CI and the release process.
+
+## License
+
+GPLv3, the same as Klipper and Moonraker. See [LICENSE](LICENSE).
