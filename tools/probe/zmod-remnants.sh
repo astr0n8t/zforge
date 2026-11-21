@@ -67,9 +67,10 @@ f /usr/lib/python3.7/site-packages/mido
 for d in bin etc home lib libexec root sbin share tmp usr var; do f "/opt/$d" "Entware"; done
 
 echo "== active right now"
-grep -E "swap|/data/.mod" /proc/swaps /proc/mounts 2>/dev/null | sed 's/^/FOUND   active: /'
+grep -E "/root/swap|/data/\.mod" /proc/swaps /proc/mounts 2>/dev/null | sed 's/^/FOUND   active: /'
 for d in /proc/[0-9]*; do
-    c=$(tr '\0' ' ' <"$d/cmdline" 2>/dev/null)
+    [ -r "$d/cmdline" ] || continue     # process may have exited
+    c=$(tr '\0' ' ' 2>/dev/null <"$d/cmdline")
     case "$c" in *"/opt/config/mod"*|*"/data/.mod"*) echo "FOUND   process ${d#/proc/}: $c" ;; esac
 done
 
